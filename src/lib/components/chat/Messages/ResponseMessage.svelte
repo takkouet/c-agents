@@ -38,6 +38,8 @@
 	} from '$lib/utils';
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
+	const GEMINI_PROXY_URL = 'http://localhost:4000';
+
 	import Name from './Name.svelte';
 	import ProfileImage from './ProfileImage.svelte';
 	import Skeleton from './Skeleton.svelte';
@@ -62,6 +64,7 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+	import MeetingCard from '$lib/components/chat/MeetingCard.svelte';
 
 	interface MessageType {
 		id: string;
@@ -365,13 +368,8 @@
 
 		await tick();
 
-		const messagesContainer = document.getElementById('messages-container');
-		const savedScrollTop = messagesContainer?.scrollTop;
-
 		editTextAreaElement.style.height = '';
 		editTextAreaElement.style.height = `${editTextAreaElement.scrollHeight}px`;
-
-		if (messagesContainer) messagesContainer.scrollTop = savedScrollTop;
 	};
 
 	const editMessageConfirmHandler = async () => {
@@ -597,6 +595,109 @@
 			contentContainerElement.removeEventListener('copy', contentCopyHandler);
 		}
 	});
+
+	// ─── Booking Card ─────────────────────────────────────────────────────────
+	const BOOKING_BLOCK_RE = /```booking\n([\s\S]*?)\n```/;
+
+	// Parse the booking JSON only once the message is fully streamed (message.done).
+	// This prevents partial-JSON parse errors during streaming.
+	$: parsedBooking = (() => {
+		if (!message.done) return null;
+		const m = BOOKING_BLOCK_RE.exec(message.content ?? '');
+		if (!m) return null;
+		try {
+			return JSON.parse(m[1]);
+		} catch {
+			return null;
+		}
+	})();
+
+	// Strip the booking block from the text passed to ContentRenderer so the
+	// raw JSON fenced block is never shown to the user.
+	// During streaming, also strip any incomplete booking block (```booking to EOF)
+	// to prevent the raw JSON from briefly flashing on screen.
+	$: displayContent = (() => {
+		const raw = message.content ?? '';
+		const stripped = raw.replace(BOOKING_BLOCK_RE, '').trim();
+		if (message.done) return stripped;
+		return stripped.replace(/```booking[\s\S]*$/, '').trim();
+	})();
+
+	// Mutable working copy: updated optimistically on user actions, then re-synced
+	// from parsedBooking when the AI re-emits an updated booking block.
+	let activeBooking: Record<string, unknown> | null = null;
+	$: if (parsedBooking !== null && (!activeBooking || activeBooking.id !== parsedBooking.id)) {
+		// Inject the current user's email into the "người đặt" (requester) field.
+		// Only initialise when activeBooking is null or the booking ID changes (new booking).
+		// Never overwrite on every activeBooking mutation — that would reset user-triggered status
+		// changes (confirm → pending, approve, reject, send_calendar, etc.) back to 'draft'.
+		activeBooking = { ...parsedBooking, requester: $user?.email ?? parsedBooking.requester };
+	}
+
+	function handleBookingAction(action: string, id: string, extra?: unknown): void {
+		if (!activeBooking) return;
+
+		// Optimistic UI update — reflected immediately before the AI round-trip
+		switch (action) {
+			case 'confirm':
+				activeBooking = { ...activeBooking, status: 'pending' };
+				break;
+			case 'cancel':
+				activeBooking = { ...activeBooking, status: 'cancelled' };
+				break;
+			case 'approve':
+				activeBooking = { ...activeBooking, status: 'approved' };
+				toast.success('Yêu cầu đặt phòng đã được phê duyệt!');
+				break;
+			case 'reject':
+				activeBooking = { ...activeBooking, status: 'rejected' };
+				toast.error('Yêu cầu đặt phòng đã bị từ chối.');
+				break;
+			case 'send_calendar': {
+				const inv = (extra as any)?.invitees ?? '';
+				activeBooking = { ...activeBooking, status: 'sent', email_sent: true, invitees: inv };
+				break;
+			}
+			case 'add_note':
+				activeBooking = { ...activeBooking, admin_note: extra as string };
+				break;
+			case 'room_select':
+				activeBooking = { ...activeBooking, ...(extra as object) };
+				break;
+			case 'order_catering': {
+				const { items, total } = extra as { items: unknown[]; total: number };
+				activeBooking = { ...activeBooking, catering: { items, total, status: 'pending' } };
+				break;
+			}
+			case 'approve_catering':
+				activeBooking = {
+					...activeBooking,
+					catering: { ...(activeBooking.catering as object), status: 'approved' }
+				};
+				toast.success('Catering đã được duyệt!');
+				break;
+			case 'reject_catering':
+				activeBooking = {
+					...activeBooking,
+					catering: { ...(activeBooking.catering as object), status: 'rejected' }
+				};
+				toast.error('Catering đã bị từ chối.');
+				break;
+		}
+
+		// All card interactions are local-only (silent). No messages are sent to the AI.
+		// send_calendar silently registers the booking in the backend registry for
+		// conflict detection and future operations (cancel/update/list).
+		if (action === 'send_calendar') {
+			const b = activeBooking as any;
+			fetch('http://localhost:4000/api/bookings', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify(b)
+			}).catch(console.error);
+		}
+	}
+	// ─── End Booking Card ─────────────────────────────────────────────────────
 </script>
 
 <DeleteConfirmDialog
@@ -612,7 +713,6 @@
 		class=" flex w-full message-{message.id}"
 		id="message-{message.id}"
 		dir={$settings.chatDirection}
-		style="scroll-margin-top: 3rem;"
 	>
 		<div class={`shrink-0 ltr:mr-3 rtl:ml-3 hidden @lg:flex mt-1 `}>
 			<ProfileImage
@@ -680,10 +780,7 @@
 						{/if}
 
 						{#if message?.embeds && message.embeds.length > 0}
-							<div
-								class="my-1 w-full flex overflow-x-auto gap-2 flex-wrap"
-								id={`${message.id}-embeds-container`}
-							>
+							<div class="my-1 w-full flex overflow-x-auto gap-2 flex-wrap">
 								{#each message.embeds as embed, idx}
 									<div class="my-2 w-full" id={`${message.id}-embeds-${idx}`}>
 										<FullHeightIframe
@@ -706,13 +803,8 @@
 									class=" bg-transparent outline-hidden w-full resize-none"
 									bind:value={editedContent}
 									on:input={(e) => {
-										const messagesContainer = document.getElementById('messages-container');
-										const savedScrollTop = messagesContainer?.scrollTop;
-
 										e.target.style.height = '';
 										e.target.style.height = `${e.target.scrollHeight}px`;
-
-										if (messagesContainer) messagesContainer.scrollTop = savedScrollTop;
 									}}
 									on:keydown={(e) => {
 										if (e.key === 'Escape') {
@@ -781,7 +873,7 @@
 									messageId={message.id}
 									{history}
 									{selectedModels}
-									content={message.content}
+									content={displayContent}
 									sources={message.sources}
 									floatingButtons={message?.done &&
 										!readOnly &&
@@ -833,6 +925,26 @@
 
 							{#if message.code_executions}
 								<CodeExecutions codeExecutions={message.code_executions} />
+							{/if}
+
+							{#if activeBooking && message.done}
+								<div class="meeting-card-wrapper">
+									<MeetingCard
+										booking={activeBooking}
+										isAdmin={$user?.role === 'admin'}
+										onConfirm={(id) => handleBookingAction('confirm', id)}
+										onCancel={(id) => handleBookingAction('cancel', id)}
+										onApprove={(id) => handleBookingAction('approve', id)}
+										onReject={(id) => handleBookingAction('reject', id)}
+										onAddNote={(id, note) => handleBookingAction('add_note', id, note)}
+										onOrderCatering={(id, items, total) =>
+											handleBookingAction('order_catering', id, { items, total })}
+										onApproveCatering={(id) => handleBookingAction('approve_catering', id)}
+										onRejectCatering={(id) => handleBookingAction('reject_catering', id)}
+										onSendCalendar={(id, inv) => handleBookingAction('send_calendar', id, { invitees: inv })}
+									onRoomSelect={(id, roomData) => handleBookingAction('room_select', id, roomData)}
+									/>
+								</div>
 							{/if}
 						</div>
 					</div>
@@ -1411,7 +1523,7 @@
 													<div class="size-4">
 														<img
 															src={action.icon}
-															class="w-4 h-4 {action.icon.includes('data:image/svg')
+															class="w-4 h-4 {action.icon.includes('svg')
 																? 'dark:invert-[80%]'
 																: ''}"
 															style="fill: currentColor;"
@@ -1464,6 +1576,31 @@
 {/key}
 
 <style>
+	.meeting-card-wrapper {
+		position: relative;
+		z-index: 1;
+		pointer-events: auto;
+		width: 100%;
+		max-width: 100%;
+		margin: 16px 0;
+	}
+
+	.meeting-card-wrapper :global(*) {
+		pointer-events: auto;
+		max-width: 100%;
+	}
+
+	.meeting-card-wrapper :global(.meeting-card) {
+		pointer-events: auto;
+		width: 100%;
+		max-width: 100%;
+	}
+
+	.meeting-card-wrapper :global(.room-selector-embedded) {
+		width: 100%;
+		max-width: 100%;
+	}
+
 	.buttons::-webkit-scrollbar {
 		display: none; /* for Chrome, Safari and Opera */
 	}

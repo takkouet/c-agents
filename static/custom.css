@@ -1,0 +1,240 @@
+/* CMC Global Theme - Professional Blue & White */
+:root {
+    /* Primary Brand Color - CMC Blue */
+    --color-primary: #0078D4;
+    --color-primary-hover: #0060a8;
+    --color-primary-light: #3396ff;
+    
+    /* Override Tailwind blue for consistent theme */
+    --color-blue-50: #e6f2ff;
+    --color-blue-100: #cce5ff;
+    --color-blue-200: #99cbff;
+    --color-blue-300: #66b0ff;
+    --color-blue-400: #3396ff;
+    --color-blue-500: #0078D4;
+    --color-blue-600: #0060a8;
+    --color-blue-700: #00487d;
+    --color-blue-800: #003052;
+    --color-blue-900: #001826;
+
+    /* Light mode specific */
+    --bg-primary: #ffffff;
+    --bg-secondary: #f5f7fa;
+    --text-primary: #1a1a1a;
+    --text-secondary: #666666;
+    --border-color: #e0e0e0;
+}
+
+/* Dark mode overrides */
+html.dark {
+    --color-primary: #3396ff;
+    --color-primary-hover: #66b0ff;
+    --color-primary-light: #99cbff;
+    
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #2d2d2d;
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0a0;
+    --border-color: #404040;
+}
+
+/* ========================================
+   BUTTONS & INTERACTIVE ELEMENTS
+   ======================================== */
+
+/* Primary buttons - CMC Blue */
+button.bg-blue-500,
+button.bg-\[\#0078D4\],
+.bg-blue-500,
+.bg-\[\#0078D4\] {
+    background-color: #0078D4 !important;
+}
+
+button.bg-blue-500:hover,
+button.bg-\[\#0078D4\]:hover,
+.bg-blue-500:hover,
+.bg-\[\#0078D4\]:hover {
+    background-color: #0060a8 !important;
+}
+
+/* Ring/focus color */
+.ring-blue-500,
+.ring-blue-600,
+.focus\:ring-blue-500 {
+    --tw-ring-color: #0078D4 !important;
+}
+
+/* Text colors */
+.text-blue-500,
+.text-blue-600,
+.text-blue-700 {
+    color: #0078D4 !important;
+}
+
+.text-blue-400 {
+    color: #3396ff !important;
+}
+
+/* Border colors */
+.border-blue-500,
+.border-blue-600 {
+    border-color: #0078D4 !important;
+}
+
+/* ========================================
+   BACKGROUND COLORS
+   ======================================== */
+
+/* Light mode backgrounds */
+html:not(.dark) {
+    /* Main backgrounds */
+    background-color: #ffffff !important;
+}
+
+/* Blue tinted backgrounds */
+.bg-blue-50 {
+    background-color: #e6f2ff !important;
+}
+
+.bg-blue-100 {
+    background-color: #cce5ff !important;
+}
+
+.bg-blue-600\/10,
+.bg-blue-500\/10 {
+    background-color: rgba(0, 120, 212, 0.1) !important;
+}
+
+/* ========================================
+   HOVER STATES
+   ======================================== */
+
+/* Blue hover effects */
+.hover\:bg-blue-500:hover,
+.hover\:bg-blue-600:hover {
+    background-color: #0078D4 !important;
+}
+
+.hover\:text-blue-500:hover,
+.hover\:text-blue-600:hover {
+    color: #0078D4 !important;
+}
+
+.hover\:text-blue-400:hover {
+    color: #3396ff !important;
+}
+
+.hover\:border-blue-500:hover {
+    border-color: #0078D4 !important;
+}
+
+/* ========================================
+   ACTIVE/SELECTED STATES
+   ======================================== */
+
+.bg-blue-600,
+.bg-blue-500 {
+    background-color: #0078D4 !important;
+}
+
+/* ========================================
+   LINKS
+   ======================================== */
+
+a {
+    color: #0078D4;
+}
+
+a:hover {
+    color: #0060a8;
+}
+
+/* ========================================
+   SCROLLBAR (Webkit)
+   ======================================== */
+
+::-webkit-scrollbar-thumb {
+    background: #0078D4 !important;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #0060a8 !important;
+}
+
+/* ========================================
+   FOCUS RINGS
+   ======================================== */
+
+:focus-visible {
+    outline-color: #0078D4 !important;
+}
+
+.focus\:ring-2:focus,
+.focus\:ring-blue-500:focus {
+    --tw-ring-color: #0078D4 !important;
+}
+
+/* ========================================
+   ACCENT COLORS (Form inputs)
+   ======================================== */
+
+input[type="checkbox"]:checked,
+input[type="radio"]:checked {
+    background-color: #0078D4 !important;
+    border-color: #0078D4 !important;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+    border-color: #0078D4 !important;
+    --tw-ring-color: #0078D4 !important;
+}
+
+/* ========================================
+   SPLASH SCREEN
+   ======================================== */
+
+html.light #splash-screen {
+    background: #0078D4 !important;
+}
+
+html.dark #splash-screen {
+    background: #171717 !important;
+}
+
+/* ========================================
+   LOGO
+   ======================================== */
+
+#logo {
+    filter: none !important;
+}
+
+/* ========================================
+   GRADIENTS (Optional - for headers/banners)
+   ======================================== */
+
+.bg-gradient-to-r.from-blue-600 {
+    background: linear-gradient(to right, #0078D4, #0060a8) !important;
+}
+
+.bg-gradient-to-br.from-blue-500 {
+    background: linear-gradient(to bottom right, #0078D4, #0060a8) !important;
+}
+
+/* ========================================
+   BADGES & TAGS
+   ======================================== */
+
+.bg-blue-500\/20 {
+    background-color: rgba(0, 120, 212, 0.2) !important;
+}
+
+.text-blue-700 {
+    color: #00487d !important;
+}
+
+html.dark .text-blue-200 {
+    color: #99cbff !important;
+}
