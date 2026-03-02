@@ -584,6 +584,16 @@
 		if (contentContainerElement) {
 			contentContainerElement.addEventListener('copy', contentCopyHandler);
 		}
+
+		// Listen for cross-bubble cancellation events so booking cards in this bubble
+		// update immediately when another bubble's agent emits a cancel_booking block.
+		_onBookingCancelled = (e: Event) => {
+			const id = (e as CustomEvent<{ id: string }>).detail.id;
+			if (activeBooking?.id === id && activeBooking.status !== 'cancelled') {
+				activeBooking = { ...activeBooking, status: 'cancelled' };
+			}
+		};
+		window.addEventListener('booking-cancelled', _onBookingCancelled);
 	});
 
 	onDestroy(() => {
@@ -594,10 +604,15 @@
 		if (contentContainerElement) {
 			contentContainerElement.removeEventListener('copy', contentCopyHandler);
 		}
+
+		if (_onBookingCancelled) {
+			window.removeEventListener('booking-cancelled', _onBookingCancelled);
+		}
 	});
 
 	// ─── Booking Card ─────────────────────────────────────────────────────────
 	const BOOKING_BLOCK_RE = /```booking\n([\s\S]*?)\n```/;
+	const CANCEL_BLOCK_RE = /```cancel_booking\n([\s\S]*?)\n```/;
 
 	// Parse the booking JSON only once the message is fully streamed (message.done).
 	// This prevents partial-JSON parse errors during streaming.
@@ -612,15 +627,56 @@
 		}
 	})();
 
+	// Parse cancel_booking block — extracts the booking id to cancel.
+	$: parsedCancelBookingId = (() => {
+		if (!message.done) return null;
+		const m = CANCEL_BLOCK_RE.exec(message.content ?? '');
+		if (!m) return null;
+		try {
+			return (JSON.parse(m[1]).id as string) ?? null;
+		} catch {
+			return null;
+		}
+	})();
+
+	// Trigger cancel action once per message when a cancel_booking block is found.
+	let _cancelTriggered = false;
+	$: if (parsedCancelBookingId && !_cancelTriggered) {
+		_cancelTriggered = true;
+		if (activeBooking?.id === parsedCancelBookingId) {
+			// The booking card is in the same message bubble — use optimistic update + persist.
+			handleBookingAction('cancel', parsedCancelBookingId);
+		} else {
+			// The booking card lives in a different (older) message bubble.
+			// Patch the DB directly so the status persists across page reloads.
+			fetch(`http://localhost:4000/api/bookings/${parsedCancelBookingId}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ status: 'cancelled' })
+			}).catch(console.error);
+		}
+		// Broadcast to all other ResponseMessage instances so their cards update immediately.
+		window.dispatchEvent(new CustomEvent('booking-cancelled', { detail: { id: parsedCancelBookingId } }));
+	}
+
+	// Handler registered in onMount / unregistered in onDestroy for cross-bubble cancel propagation.
+	let _onBookingCancelled: (e: Event) => void;
+
 	// Strip the booking block from the text passed to ContentRenderer so the
 	// raw JSON fenced block is never shown to the user.
 	// During streaming, also strip any incomplete booking block (```booking to EOF)
 	// to prevent the raw JSON from briefly flashing on screen.
 	$: displayContent = (() => {
 		const raw = message.content ?? '';
-		const stripped = raw.replace(BOOKING_BLOCK_RE, '').trim();
+		const stripped = raw
+			.replace(BOOKING_BLOCK_RE, '')
+			.replace(CANCEL_BLOCK_RE, '')
+			.trim();
 		if (message.done) return stripped;
-		return stripped.replace(/```booking[\s\S]*$/, '').trim();
+		return stripped
+			.replace(/```booking[\s\S]*$/, '')
+			.replace(/```cancel_booking[\s\S]*$/, '')
+			.trim();
 	})();
 
 	// Mutable working copy: updated optimistically on user actions, then re-synced
@@ -632,6 +688,19 @@
 		// Never overwrite on every activeBooking mutation — that would reset user-triggered status
 		// changes (confirm → pending, approve, reject, send_calendar, etc.) back to 'draft'.
 		activeBooking = { ...parsedBooking, requester: $user?.email ?? parsedBooking.requester };
+	}
+
+	// Once parsedBooking is resolved, fetch the persisted state from the DB and
+	// use it as the source of truth (overrides the LLM-emitted draft status).
+	let _bookingFetched = false;
+	$: if (parsedBooking?.id && !_bookingFetched) {
+		_bookingFetched = true;
+		fetch(`http://localhost:4000/api/bookings/${parsedBooking.id}`)
+			.then((r) => (r.ok ? r.json() : null))
+			.then((saved) => {
+				if (saved && activeBooking) activeBooking = { ...activeBooking, ...saved };
+			})
+			.catch(() => {}); // proxy not running — keep parsedBooking state
 	}
 
 	function handleBookingAction(action: string, id: string, extra?: unknown): void {
@@ -685,15 +754,13 @@
 				break;
 		}
 
-		// All card interactions are local-only (silent). No messages are sent to the AI.
-		// send_calendar silently registers the booking in the backend registry for
-		// conflict detection and future operations (cancel/update/list).
-		if (action === 'send_calendar') {
-			const b = activeBooking as any;
+		// Persist the full booking state to DB after every action so F5 restores
+		// the correct step (pending, approved, sent, etc.).
+		if (activeBooking) {
 			fetch('http://localhost:4000/api/bookings', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify(b)
+				body: JSON.stringify(activeBooking)
 			}).catch(console.error);
 		}
 	}

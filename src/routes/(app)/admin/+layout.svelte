@@ -100,6 +100,14 @@
 								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
 							href="/admin/settings">{$i18n.t('Settings')}</a
 						>
+
+						<a
+							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/bookings')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/bookings">Bookings</a
+						>
 					</div>
 				</div>
 			</div>

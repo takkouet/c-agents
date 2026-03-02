@@ -47,6 +47,8 @@
 		? STATUS_CONFIG[activeBooking.status] || STATUS_CONFIG.pending
 		: STATUS_CONFIG.pending;
 
+	$: isFrozen = activeBooking?.status === 'cancelled' || activeBooking?.status === 'rejected';
+
 	let adminNote = '';
 	let invitees = '';
 	let inviteesError = false;
@@ -54,39 +56,37 @@
 	let cateringTotal = 0;
 	let expandedSection = null;
 	let rejectNoteError = false;
+	let noCatering = false;
 
 	// ── Admin-simulation state (visible to non-admin users) ──────────────────
 	let autoSimulate = true;
 	let simulationStarted = false;
-	let cateringSimulationStarted = false;
 
 	async function startAdminSimulation() {
 		const delay = Math.floor(Math.random() * 5001) + 5000;
 		await new Promise((r) => setTimeout(r, delay));
-		const willApprove = Math.random() > 0.2;
+		// const willApprove = Math.random() > 0.2;
+		const willApprove = true;
 		const mockNote = willApprove
 			? 'Đã xem xét và phê duyệt yêu cầu đặt phòng.'
 			: 'Thời gian yêu cầu bị trùng lịch. Vui lòng chọn khung giờ khác.';
 		adminNote = mockNote;
 		if (onAddNote) onAddNote(activeBooking.id, mockNote);
-		if (willApprove) { if (onApprove) onApprove(activeBooking.id); }
-		else { if (onReject) onReject(activeBooking.id); }
+		if (willApprove) {
+			if (onApprove) onApprove(activeBooking.id);
+			// Approve catering at the same time — both fall under admin responsibility
+			if (activeBooking?.catering?.status === 'pending') {
+				if (onApproveCatering) onApproveCatering(activeBooking.id);
+			}
+		} else {
+			if (onReject) onReject(activeBooking.id);
+		}
 	}
 
-	async function startCateringSimulation() {
-		const delay = Math.floor(Math.random() * 5001) + 5000;
-		await new Promise((r) => setTimeout(r, delay));
-		if (onApproveCatering) onApproveCatering(activeBooking.id);
-	}
-
-	// Reactive simulation triggers
+	// Reactive simulation trigger — admin handles both booking and catering in one action
 	$: if (!isAdmin && autoSimulate && activeBooking?.status === 'pending' && !simulationStarted) {
 		simulationStarted = true;
 		startAdminSimulation();
-	}
-	$: if (!isAdmin && autoSimulate && activeBooking?.catering?.status === 'pending' && !cateringSimulationStarted) {
-		cateringSimulationStarted = true;
-		startCateringSimulation();
 	}
 
 	function handleAdminReject() {
@@ -159,8 +159,16 @@
 	}
 
 	function handleOrderCatering() {
-		if (onOrderCatering) onOrderCatering(activeBooking.id, selectedCatering, cateringTotal);
-		toast.success('Đã đặt catering thành công!');
+		// Only save locally — the actual order is dispatched together with user approval in handleConfirmStep2
+		expandedSection = null;
+		toast.success('Đã lưu lựa chọn catering!');
+	}
+
+	function handleConfirmStep2() {
+		if (onConfirm) onConfirm(activeBooking.id);
+		if (!noCatering && onOrderCatering) {
+			onOrderCatering(activeBooking.id, selectedCatering, cateringTotal);
+		}
 	}
 
 	function handleSelectRoom() {
@@ -224,6 +232,11 @@
 			cateringTotal = activeBooking.catering.total || 0;
 		}
 		if (activeBooking?.admin_note) adminNote = activeBooking.admin_note;
+		if (activeBooking?.invitees) {
+			invitees = typeof activeBooking.invitees === 'string'
+				? activeBooking.invitees
+				: activeBooking.invitees.join(', ');
+		}
 	});
 </script>
 
@@ -242,7 +255,7 @@
 					<span class="section-tag">BOOKING REQUEST</span>
 					<span
 						class="status-badge"
-						style="background: {statusConfig.color}20; color: {statusConfig.color}; border-color: {statusConfig.color}40"
+						style="background: {statusConfig.color}; color: white; border-color: {statusConfig.color}40"
 					>
 						{statusConfig.label}
 					</span>
@@ -392,9 +405,16 @@
 				<div class="section">
 					<div
 						class="section-header"
-						on:click={() => (expandedSection = expandedSection === 'catering' ? null : 'catering')}
+						on:click={() => { if (!isFrozen) expandedSection = expandedSection === 'catering' ? null : 'catering'; }}
 					>
-						<span class="section-title">Catering</span>
+						<div class="section-title-row">
+							<span class="section-title">Catering</span>
+							{#if noCatering}
+								<span class="no-catering-badge">Không cần</span>
+							{:else if selectedCatering.length > 0}
+								<span class="catering-saved-badge">{selectedCatering.length} món đã chọn</span>
+							{/if}
+						</div>
 						<svg
 							class="expand-icon {expandedSection === 'catering' ? 'expanded' : ''}"
 							width="16"
@@ -408,34 +428,52 @@
 						</svg>
 					</div>
 					{#if expandedSection === 'catering'}
-						<div class="catering-grid" transition:fly={{ y: -10, duration: 200 }}>
-							{#each CATERING_OPTIONS as item}
-								{@const isSelected = selectedCatering.some((c) => c.id === item.id)}
-								{@const qty = selectedCatering.find((c) => c.id === item.id)?.quantity ?? 1}
-								<button
-									class="catering-btn {isSelected ? 'selected' : ''}"
-									on:click={() => toggleCatering(item)}
-								>
-									<span class="check-icon">{isSelected ? '●' : '○'}</span>
-									<span class="item-name">{item.name}</span>
-									{#if isSelected}
-										<div class="qty-stepper" on:click|stopPropagation>
-											<button class="qty-btn" on:click={() => changeQuantity(item.id, -1)}>−</button>
-											<span class="qty-val">{qty}</span>
-											<button class="qty-btn" on:click={() => changeQuantity(item.id, 1)}>+</button>
-										</div>
-									{:else}
-										<span class="item-price">{item.price.toLocaleString()} VNĐ</span>
-									{/if}
-								</button>
-							{/each}
+						<div class="catering-expanded" transition:fly={{ y: -10, duration: 200 }}>
+							<!-- No catering toggle -->
+							<button
+								class="no-catering-toggle {noCatering ? 'selected' : ''}"
+								disabled={isFrozen}
+								on:click={() => {
+									noCatering = !noCatering;
+									if (noCatering) { selectedCatering = []; cateringTotal = 0; }
+								}}
+							>
+								<span class="check-icon">{noCatering ? '●' : '○'}</span>
+								<span class="item-name">Không cần catering</span>
+							</button>
+
+							{#if !noCatering}
+								<div class="catering-grid">
+									{#each CATERING_OPTIONS as item}
+										{@const isSelected = selectedCatering.some((c) => c.id === item.id)}
+										{@const qty = selectedCatering.find((c) => c.id === item.id)?.quantity ?? 1}
+										<button
+											class="catering-btn {isSelected ? 'selected' : ''}"
+											on:click={() => toggleCatering(item)}
+											disabled={isFrozen}
+										>
+											<span class="check-icon">{isSelected ? '●' : '○'}</span>
+											<span class="item-name">{item.name}</span>
+											{#if isSelected}
+												<div class="qty-stepper" on:click|stopPropagation>
+													<button class="qty-btn" on:click={() => changeQuantity(item.id, -1)} disabled={isFrozen}>−</button>
+													<span class="qty-val">{qty}</span>
+													<button class="qty-btn" on:click={() => changeQuantity(item.id, 1)} disabled={isFrozen}>+</button>
+												</div>
+											{:else}
+												<span class="item-price">{item.price.toLocaleString()} VNĐ</span>
+											{/if}
+										</button>
+									{/each}
+								</div>
+								{#if selectedCatering.length > 0}
+									<div class="catering-footer">
+										<span>Tổng: <strong>{cateringTotal.toLocaleString()} VNĐ</strong></span>
+										<button class="order-btn" on:click={handleOrderCatering} disabled={isFrozen}>Đặt</button>
+									</div>
+								{/if}
+							{/if}
 						</div>
-						{#if selectedCatering.length > 0}
-							<div class="catering-footer">
-								<span>Tổng: <strong>{cateringTotal.toLocaleString()} VNĐ</strong></span>
-								<button class="order-btn" on:click={handleOrderCatering}>Đặt</button>
-							</div>
-						{/if}
 					{/if}
 				</div>
 
@@ -450,7 +488,7 @@
 						placeholder="email1@cmcglobal.vn, email2@cmcglobal.vn"
 						bind:value={invitees}
 						on:blur={validateInvitees}
-						disabled={activeBooking.status === 'sent'}
+						disabled={activeBooking.status === 'sent' || isFrozen}
 					/>
 					{#if inviteesError}
 						<div class="note-error">Email không hợp lệ. Vui lòng kiểm tra lại.</div>
@@ -478,7 +516,7 @@
 						<span class="section-title">Approval Workflow</span>
 					</div>
 					{#if !isAdmin}
-						<div class="sim-toggle-row">
+						<div class="sim-toggle-row" style="display: none">
 							<span class="sim-toggle-label">🤖 Mô phỏng phê duyệt Admin</span>
 							<label class="toggle-switch">
 								<input type="checkbox" bind:checked={autoSimulate} />
@@ -544,12 +582,12 @@
 								{/if}
 							</div>
 							<div class="step-info">
-								<div class="step-name">Xác nhận từ người đặt</div>
+								<div class="step-name">User Approval</div>
 								{#if activeBooking.status === 'draft'}
 									<div class="step-actions">
 										<button
 											class="action-btn confirm"
-											on:click={() => onConfirm && onConfirm(activeBooking.id)}>Xác nhận</button
+											on:click={handleConfirmStep2}>Xác nhận</button
 										>
 										<button
 											class="action-btn reject"
@@ -633,7 +671,9 @@
 											? 'Đã duyệt'
 											: activeBooking.status === 'rejected'
 												? 'Đã từ chối'
-												: 'Đang chờ'}
+												: activeBooking.status === 'cancelled'
+													? 'Đã hủy'
+													: 'Đang chờ'}
 									</div>
 								{/if}
 							</div>
@@ -641,16 +681,18 @@
 
 						<!-- Step 4 -->
 						<div
-							class="workflow-step {activeBooking.catering?.status === 'pending'
-								? 'active'
-								: activeBooking.catering?.status === 'approved'
-									? 'completed'
-									: 'pending'}"
+							class="workflow-step {activeBooking.status === 'cancelled'
+								? 'pending'
+								: activeBooking.catering?.status === 'pending'
+									? 'active'
+									: activeBooking.catering?.status === 'approved'
+										? 'completed'
+										: 'pending'}"
 						>
 							<div
-								class="step-marker {activeBooking.catering?.status === 'pending' ? 'pulse' : ''}"
+								class="step-marker {activeBooking.catering?.status === 'pending' && activeBooking.status !== 'cancelled' ? 'pulse' : ''}"
 							>
-								{#if activeBooking.catering?.status === 'approved'}
+								{#if activeBooking.catering?.status === 'approved' && activeBooking.status !== 'cancelled'}
 									<svg
 										width="14"
 										height="14"
@@ -692,7 +734,11 @@
 									{/if}
 								{:else}
 									<div class="step-time">
-										{activeBooking.catering?.status === 'approved' ? 'Đã duyệt' : 'Không có catering'}
+										{activeBooking.status === 'cancelled'
+											? 'Đã hủy'
+											: activeBooking.catering?.status === 'approved'
+												? 'Đã duyệt'
+												: 'Không có catering'}
 									</div>
 								{/if}
 							</div>
@@ -720,12 +766,16 @@
 								<div class="step-name">Send Calendar Invite</div>
 								{#if activeBooking.status === 'sent'}
 									<div class="step-time">Sent successfully</div>
-								{:else if activeBooking.status === 'approved'}
+								{:else if activeBooking.status === 'approved' && (!activeBooking.catering || activeBooking.catering.status !== 'pending')}
 									<button
 										class="action-btn send"
 										on:click={() => onSendCalendar && onSendCalendar(activeBooking.id, invitees)}
 										>Send Invite</button
 									>
+								{:else if activeBooking.status === 'approved'}
+									<div class="step-time">Đang chờ duyệt catering...</div>
+								{:else if activeBooking.status === 'cancelled'}
+									<div class="step-time">Đã hủy</div>
 								{:else}
 									<div class="step-time">Waiting for approval</div>
 								{/if}
@@ -735,7 +785,7 @@
 				</div>
 
 				<!-- Email Confirmation -->
-				{#if activeBooking.status === 'sent' || activeBooking.email_sent}
+				{#if (activeBooking.status === 'sent' || activeBooking.email_sent) && activeBooking.status !== 'cancelled'}
 					<div class="email-box" in:fade={{ duration: 300 }}>
 						<div class="email-success-icon">
 							<svg
@@ -1203,11 +1253,74 @@
 		font-style: italic;
 	}
 
+	.section-title-row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.no-catering-badge {
+		font-size: 10px;
+		font-weight: 600;
+		color: #64748b;
+		background: #f1f5f9;
+		border: 1px solid #e2e8f0;
+		border-radius: 10px;
+		padding: 2px 8px;
+	}
+
+	.catering-saved-badge {
+		font-size: 10px;
+		font-weight: 600;
+		color: #1e40af;
+		background: #eff6ff;
+		border: 1px solid #bfdbfe;
+		border-radius: 10px;
+		padding: 2px 8px;
+	}
+
+	.catering-expanded {
+		display: flex;
+		flex-direction: column;
+		gap: 10px;
+	}
+
+	.no-catering-toggle {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		width: 100%;
+		padding: 10px 12px;
+		background: #f8fafc;
+		border: 1px dashed #cbd5e1;
+		border-radius: 10px;
+		cursor: pointer;
+		transition: all 0.2s;
+		text-align: left;
+		color: #64748b;
+		font-size: 12px;
+	}
+
+	.no-catering-toggle:hover {
+		background: #f1f5f9;
+		border-color: #94a3b8;
+	}
+
+	.no-catering-toggle.selected {
+		background: linear-gradient(135deg, #fef9c3 0%, #fef08a 100%);
+		border-color: #ca8a04;
+		border-style: solid;
+		color: #713f12;
+	}
+
+	.no-catering-toggle.selected .check-icon {
+		color: #ca8a04;
+	}
+
 	.catering-grid {
 		display: grid;
 		grid-template-columns: repeat(2, 1fr);
 		gap: 8px;
-		margin-bottom: 12px;
 	}
 
 	.catering-btn {
