@@ -111,9 +111,17 @@
 			{$showSidebar ? 'ml-1' : ''}
 			"
 				>
-					{#if showModelSelector}
-						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
-					{/if}
+					<div class="flex items-center gap-2 px-2 py-1">
+						<span class="text-sm font-semibold text-gray-800 dark:text-gray-100 tracking-tight">
+							C-Agents
+						</span>
+						<span
+							class="rounded-full bg-blue-100 dark:bg-blue-900/50 px-2 py-0.5
+								   text-[10px] font-medium text-blue-700 dark:text-blue-300 uppercase tracking-wide"
+						>
+							Orchestrator
+						</span>
+					</div>
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">

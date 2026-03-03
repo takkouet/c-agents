@@ -10,6 +10,8 @@ type TextStreamUpdate = {
 	selectedModelId?: any;
 	error?: any;
 	usage?: ResponseUsage;
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	orchestration?: any;
 };
 
 type ResponseUsage = {
@@ -82,6 +84,11 @@ async function* openAIStreamToIterator(
 				continue;
 			}
 
+			if (parsedData.type === 'orchestration') {
+				yield { done: false, value: '', orchestration: parsedData };
+				continue;
+			}
+
 			yield {
 				done: false,
 				value: parsedData.choices?.[0]?.delta?.content ?? ''
@@ -116,6 +123,10 @@ async function* streamLargeDeltasAsRandomChunks(
 			continue;
 		}
 		if (textStreamUpdate.usage) {
+			yield textStreamUpdate;
+			continue;
+		}
+		if (textStreamUpdate.orchestration) {
 			yield textStreamUpdate;
 			continue;
 		}

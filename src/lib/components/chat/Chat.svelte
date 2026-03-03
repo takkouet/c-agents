@@ -42,7 +42,8 @@
 		functions,
 		selectedFolder,
 		pinnedChats,
-		showEmbeds
+		showEmbeds,
+		showOrchestrationSidebar
 	} from '$lib/stores';
 
 	import {
@@ -79,6 +80,7 @@
 		stopTask,
 		getTaskIdsByChatId
 	} from '$lib/apis';
+	import { resetOrchestration, pushOrchestrationEvent, orchestrationEvents, lockOrchestration, orchestrationDone } from '$lib/stores/orchestration';
 	import { getTools } from '$lib/apis/tools';
 	import { uploadFile } from '$lib/apis/files';
 	import { createOpenAITextStream } from '$lib/apis/streaming';
@@ -89,7 +91,7 @@
 	import MessageInput from '$lib/components/chat/MessageInput.svelte';
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
-	import ChatControls from './ChatControls.svelte';
+	import AgentOrchestrationSidebar from './AgentOrchestrationSidebar.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
 	import NotificationToast from '../NotificationToast.svelte';
@@ -1179,6 +1181,7 @@
 
 				params = chatContent?.params ?? {};
 				chatFiles = chatContent?.files ?? [];
+				orchestrationEvents.set(chatContent?.orchestrationEvents ?? []);
 
 				autoScroll = true;
 				await tick();
@@ -1481,6 +1484,7 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId) => {
+		lockOrchestration(); // freeze sidebar as soon as message starts rendering
 		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
 
 		// Store raw OR-aligned output items from backend
@@ -1721,6 +1725,8 @@
 
 		messageInput?.setText('');
 		prompt = '';
+
+		resetOrchestration();
 
 		const messages = createMessagesList(history, history.currentId);
 		const _files = JSON.parse(JSON.stringify(files));
@@ -2276,6 +2282,7 @@
 	};
 
 	const submitMessage = async (parentId, prompt) => {
+		orchestrationDone.set(false);
 		let userPrompt = prompt;
 		let userMessageId = uuidv4();
 
@@ -2397,11 +2404,16 @@
 					Boolean($settings?.splitLargeChunks ?? false)
 				);
 				for await (const update of textStream) {
-					const { value, done, sources, error, usage } = update;
+					const { value, done, sources, error, usage, orchestration } = update;
 					if (error || done) {
 						generating = false;
 						generationController = null;
 						break;
+					}
+
+					if (orchestration) {
+						pushOrchestrationEvent(orchestration);
+						continue;
 					}
 
 					if (mergedResponse.content == '' && value == '\n') {
@@ -2473,7 +2485,8 @@
 					history: history,
 					messages: createMessagesList(history, history.currentId),
 					params: params,
-					files: chatFiles
+					files: chatFiles,
+					orchestrationEvents: get(orchestrationEvents)
 				});
 				currentChatPage.set(1);
 				await chats.set(await getChatList(localStorage.token, $currentChatPage));
@@ -2590,7 +2603,21 @@
 			{/if}
 
 			<PaneGroup direction="horizontal" class="w-full h-full">
-				<Pane defaultSize={50} minSize={30} class="h-full flex relative max-w-full flex-col">
+				<Pane defaultSize={70} minSize={40} class="h-full flex relative max-w-full flex-col">
+					<!-- Floating "Show Thinking" button — visible only when sidebar is collapsed -->
+					{#if !$showOrchestrationSidebar}
+						<button
+							class="absolute right-3 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+							title="Show Agent Thinking"
+							on:click={() => showOrchestrationSidebar.set(true)}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+							</svg>
+							Agent Thinking
+						</button>
+					{/if}
+
 					<Navbar
 						bind:this={navbarElement}
 						chat={{
@@ -2796,27 +2823,16 @@
 					</div>
 				</Pane>
 
-				<ChatControls
-					bind:this={controlPaneComponent}
-					bind:history
-					bind:chatFiles
-					bind:params
-					bind:files
-					bind:pane={controlPane}
-					chatId={$chatId}
-					modelId={selectedModelIds?.at(0) ?? null}
-					models={selectedModelIds.reduce((a, e, i, arr) => {
-						const model = $models.find((m) => m.id === e);
-						if (model) {
-							return [...a, model];
-						}
-						return a;
-					}, [])}
-					{submitPrompt}
-					{stopResponse}
-					{showMessage}
-					{eventTarget}
-				/>
+				{#if $showOrchestrationSidebar}
+					<PaneResizer class="w-1.5 bg-gray-200 dark:bg-gray-800 hover:bg-blue-400 dark:hover:bg-blue-600 transition-colors cursor-col-resize" />
+					<Pane
+						defaultSize={30}
+						minSize={20}
+						class="h-full"
+					>
+						<AgentOrchestrationSidebar />
+					</Pane>
+				{/if}
 			</PaneGroup>
 		</div>
 	{:else if loading}

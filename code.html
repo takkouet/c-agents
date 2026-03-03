@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Agent Orchestration Process Sidebar</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#197fe6",
+                        "background-light": "#f6f7f8",
+                        "background-dark": "#111921",
+                    },
+                    fontFamily: {
+                        "display": ["Inter", "sans-serif"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display min-h-screen flex items-center justify-center p-8">
+<aside class="w-full max-w-[420px] bg-white dark:bg-[#1a222d] rounded-xl shadow-lg border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col h-[850px]">
+<div class="px-6 py-5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+<h3 class="text-slate-900 dark:text-white text-lg font-bold leading-tight tracking-tight">Orchestration Flow</h3>
+<button class="text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-primary transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<div class="flex-1 overflow-y-auto custom-scrollbar p-6">
+<div class="grid grid-cols-[40px_1fr] gap-x-4">
+<div class="flex flex-col items-center">
+<div class="flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-primary border border-slate-200 dark:border-slate-700 shadow-sm z-10">
+<span class="material-symbols-outlined text-[20px]">hub</span>
+</div>
+<div class="w-[2px] bg-slate-200 dark:bg-slate-700 h-full"></div>
+</div>
+<div class="pb-8 pt-1">
+<div class="flex items-start justify-between">
+<div>
+<p class="text-slate-900 dark:text-white text-sm font-semibold leading-normal">Orchestrator: Change Password</p>
+<p class="text-slate-500 dark:text-slate-400 text-xs mt-0.5">Started 2m ago • ID: #REQ-8821</p>
+</div>
+<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                            Active
+                        </span>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-[40px_1fr] gap-x-4">
+<div class="flex flex-col items-center">
+<div class="flex items-center justify-center w-10 h-10 rounded-full bg-emerald-500 text-white shadow-md z-10">
+<span class="material-symbols-outlined text-[20px]">check</span>
+</div>
+<div class="w-[2px] bg-slate-200 dark:bg-slate-700 h-full"></div>
+</div>
+<div class="pb-8 pt-1">
+<div class="flex items-start justify-between mb-3">
+<div>
+<p class="text-slate-900 dark:text-white text-sm font-semibold leading-normal">HR Agent: Identity Verification</p>
+<p class="text-slate-500 dark:text-slate-400 text-xs mt-0.5">Completed in 4s</p>
+</div>
+</div>
+<div class="flex flex-wrap gap-2">
+<div class="group relative inline-flex items-center justify-center">
+<div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-[#232a34] border border-slate-200 dark:border-slate-700 cursor-help hover:border-primary/50 hover:bg-slate-100 dark:hover:bg-[#2a323d] transition-colors">
+<span class="material-symbols-outlined text-slate-400 text-[16px]">input</span>
+<span class="text-slate-700 dark:text-slate-300 text-xs font-medium">Input: Emp ID 8821</span>
+</div>
+<div class="opacity-0 group-hover:opacity-100 transition-opacity duration-200 absolute bottom-full left-0 mb-2 w-64 p-3 bg-slate-900 dark:bg-black text-white rounded-lg shadow-xl z-50 pointer-events-none">
+<div class="space-y-1.5 font-mono text-[10px] leading-relaxed">
+<div class="flex gap-2">
+<span class="text-slate-400">employee_name:</span>
+<span class="text-emerald-400">"John Doe"</span>
+</div>
+<div class="flex gap-2">
+<span class="text-slate-400">department:</span>
+<span class="text-emerald-400">"Engineering"</span>
+</div>
+<div class="flex gap-2">
+<span class="text-slate-400">timestamp:</span>
+<span class="text-emerald-400">"2023-10-27T10:00:00Z"</span>
+</div>
+</div>
+<div class="absolute top-full left-4 -mt-1 w-2 h-2 bg-slate-900 dark:bg-black rotate-45"></div>
+</div>
+</div>
+<div class="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800/30">
+<span class="material-symbols-outlined text-emerald-500 text-[16px]">verified</span>
+<span class="text-emerald-700 dark:text-emerald-400 text-xs font-medium">Verified</span>
+</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-[40px_1fr] gap-x-4">
+<div class="flex flex-col items-center">
+<div class="flex items-center justify-center w-10 h-10 rounded-full bg-primary text-white shadow-[0_0_15px_rgba(25,127,230,0.4)] z-10 relative">
+<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-20"></span>
+<span class="material-symbols-outlined text-[20px]">dns</span>
+</div>
+<div class="w-[2px] border-l-2 border-dashed border-slate-200 dark:border-slate-700 h-full ml-[2px]"></div>
+</div>
+<div class="pb-8 pt-1">
+<div class="flex items-start justify-between mb-2">
+<div>
+<p class="text-slate-900 dark:text-white text-sm font-semibold leading-normal">IT Agent: System Access</p>
+<p class="text-primary text-xs mt-0.5 font-medium flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+                            In Progress...
+                        </p>
+</div>
+</div>
+<div class="mt-3 rounded-xl overflow-hidden border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-[#2a2418]">
+<div class="p-4">
+<div class="flex items-start gap-3 mb-1">
+<div class="p-1.5 rounded-md bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 shrink-0">
+<span class="material-symbols-outlined text-[20px]">hourglass_top</span>
+</div>
+<div>
+<h4 class="text-slate-900 dark:text-white text-sm font-bold">Status: Awaiting User Response</h4>
+<p class="text-slate-600 dark:text-slate-300 text-xs mt-1 leading-relaxed">
+                                    The IT Agent is waiting for confirmation from the designated approver for user ID: 8821.
+                                </p>
+</div>
+</div>
+</div>
+<div class="h-1 w-full bg-amber-100 dark:bg-amber-900/30">
+<div class="h-full bg-amber-500 w-2/3 rounded-r-full animate-pulse"></div>
+</div>
+</div>
+</div>
+</div>
+<div class="grid grid-cols-[40px_1fr] gap-x-4 opacity-50">
+<div class="flex flex-col items-center">
+<div class="flex items-center justify-center w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-400 z-10">
+<span class="material-symbols-outlined text-[20px]">mail</span>
+</div>
+</div>
+<div class="pt-2">
+<p class="text-slate-900 dark:text-white text-sm font-medium leading-normal">Notification Agent</p>
+<p class="text-slate-500 dark:text-slate-400 text-xs">Pending approval...</p>
+</div>
+</div>
+</div>
+<div class="p-4 border-t border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-[#151b24]">
+<div class="flex items-center justify-center gap-2 text-slate-400 text-xs py-2">
+<span class="material-symbols-outlined text-[16px]">lock</span>
+<span>Read-only View</span>
+</div>
+</div>
+</aside>
+
+</body></html>
