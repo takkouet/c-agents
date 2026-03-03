@@ -19,9 +19,13 @@
 	export let onRejectCatering = null;
 	export let onSendCalendar = null;
 	export let onRoomSelect = null;
+	export let onUpdateDateTime = null;
 	export let isAdmin = false;
 
 	let showRoomSelector = false;
+	let selectedDate = '';
+	let selectedStartTime = '';
+	let selectedEndTime = '';
 
 	$: activeBooking = booking;
 
@@ -47,7 +51,7 @@
 		? STATUS_CONFIG[activeBooking.status] || STATUS_CONFIG.pending
 		: STATUS_CONFIG.pending;
 
-	$: isFrozen = activeBooking?.status === 'cancelled' || activeBooking?.status === 'rejected';
+	$: isFrozen = activeBooking?.status !== 'draft';
 
 	let adminNote = '';
 	let invitees = '';
@@ -237,7 +241,20 @@
 				? activeBooking.invitees
 				: activeBooking.invitees.join(', ');
 		}
+		selectedDate = activeBooking?.date ?? '';
+		selectedStartTime = activeBooking?.start_time ?? '';
+		selectedEndTime = activeBooking?.end_time ?? '';
 	});
+
+	function handleDateTimeChange() {
+		if (onUpdateDateTime && activeBooking?.id) {
+			onUpdateDateTime(activeBooking.id, {
+				date: selectedDate,
+				start_time: selectedStartTime,
+				end_time: selectedEndTime
+			});
+		}
+	}
 </script>
 
 {#if activeBooking}
@@ -303,7 +320,13 @@
 						</div>
 						<div class="info-text">
 							<div class="info-label">Ngày</div>
-							<div class="info-value">{formatDate(activeBooking.date)}</div>
+							<input
+								type="date"
+								class="info-input"
+								bind:value={selectedDate}
+								disabled={activeBooking.status !== 'draft'}
+								on:change={handleDateTimeChange}
+							/>
 						</div>
 					</div>
 
@@ -323,8 +346,22 @@
 						</div>
 						<div class="info-text">
 							<div class="info-label">Giờ</div>
-							<div class="info-value">
-								{formatTime(activeBooking.start_time)} - {formatTime(activeBooking.end_time)}
+							<div class="info-value time-range">
+								<input
+									type="time"
+									class="info-input"
+									bind:value={selectedStartTime}
+									disabled={activeBooking.status !== 'draft'}
+									on:change={handleDateTimeChange}
+								/>
+								<span>–</span>
+								<input
+									type="time"
+									class="info-input"
+									bind:value={selectedEndTime}
+									disabled={activeBooking.status !== 'draft'}
+									on:change={handleDateTimeChange}
+								/>
 							</div>
 						</div>
 					</div>
@@ -488,7 +525,7 @@
 						placeholder="email1@cmcglobal.vn, email2@cmcglobal.vn"
 						bind:value={invitees}
 						on:blur={validateInvitees}
-						disabled={activeBooking.status === 'sent' || isFrozen}
+						disabled={isFrozen}
 					/>
 					{#if inviteesError}
 						<div class="note-error">Email không hợp lệ. Vui lòng kiểm tra lại.</div>
@@ -1138,6 +1175,32 @@
 		font-size: 13px;
 		font-weight: 600;
 		color: #1e293b;
+	}
+
+	.time-range {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+
+	.info-input {
+		background: transparent;
+		border: none;
+		border-bottom: 1px solid rgba(30, 41, 59, 0.25);
+		color: #1e293b;
+		font-size: 13px;
+		font-weight: 600;
+		font-family: inherit;
+		padding: 0 2px;
+		cursor: pointer;
+		outline: none;
+		width: auto;
+	}
+
+	.info-input:disabled {
+		border-bottom-color: transparent;
+		cursor: default;
+		opacity: 1;
 	}
 
 	.select-room-btn-container {

@@ -140,6 +140,29 @@
 	let mapContainer;
 	let map;
 	let markers = [];
+	let occupiedRooms = [];
+
+	async function fetchOccupied() {
+		const { date, start_time, end_time, id } = booking ?? {};
+		if (!date || !start_time || !end_time) {
+			occupiedRooms = [];
+			return;
+		}
+		try {
+			const params = new URLSearchParams({ date, start_time, end_time });
+			if (id) params.set('exclude_id', id);
+			console.log('[RoomList] fetchOccupied →', params.toString());
+			const res = await fetch(`http://localhost:4000/api/availability?${params}`);
+			const data = await res.json();
+			console.log('[RoomList] availability response →', data);
+			if (res.ok) occupiedRooms = data.occupied ?? [];
+		} catch (e) {
+			console.error('[RoomList] fetchOccupied error →', e);
+			occupiedRooms = [];
+		}
+	}
+
+	$: if (booking?.date || booking?.start_time || booking?.end_time) fetchOccupied();
 
 	$: filteredRooms =
 		selectedLocation === 'all'
@@ -320,14 +343,18 @@
 					</div>
 					<div class="room-list">
 						{#each filteredRooms as room}
+							{@const occupied = occupiedRooms.includes(room.id)}
 							<button
-								class="room-card {selectedRoom?.id === room.id ? 'selected' : ''}"
+								class="room-card {selectedRoom?.id === room.id ? 'selected' : ''} {occupied ? 'occupied' : ''}"
 								data-room-id={room.id}
-								on:click={() => selectRoom(room)}
+								disabled={occupied}
+								on:click={() => !occupied && selectRoom(room)}
 							>
 								<div class="room-image" style="background-image: url({room.image})">
 									<span class="room-location-badge">{room.location}</span>
-									{#if selectedRoom?.id === room.id}
+									{#if occupied}
+										<span class="occupied-badge">Đã đặt</span>
+									{:else if selectedRoom?.id === room.id}
 										<span class="selected-check">✓</span>
 									{/if}
 								</div>
@@ -878,6 +905,26 @@
 		border-color: #3b82f6;
 		background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
 		box-shadow: 0 4px 15px rgba(59, 130, 246, 0.25);
+	}
+
+	.room-card.occupied {
+		opacity: 0.45;
+		cursor: not-allowed;
+		pointer-events: none;
+	}
+
+	.occupied-badge {
+		position: absolute;
+		top: 6px;
+		right: 6px;
+		background: rgba(220, 38, 38, 0.85);
+		color: #fff;
+		font-size: 10px;
+		font-weight: 700;
+		padding: 2px 7px;
+		border-radius: 10px;
+		letter-spacing: 0.2px;
+		backdrop-filter: blur(4px);
 	}
 
 	.room-image {

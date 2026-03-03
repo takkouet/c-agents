@@ -22,7 +22,8 @@
 		settings,
 		temporaryChatEnabled,
 		TTSWorker,
-		user
+		user,
+		WEBUI_NAME
 	} from '$lib/stores';
 	import { synthesizeOpenAISpeech } from '$lib/apis/audio';
 	import { imageGenerations } from '$lib/apis/images';
@@ -65,6 +66,7 @@
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import MeetingCard from '$lib/components/chat/MeetingCard.svelte';
+	import BookingList from '$lib/components/chat/BookingList.svelte';
 
 	interface MessageType {
 		id: string;
@@ -613,6 +615,7 @@
 	// ─── Booking Card ─────────────────────────────────────────────────────────
 	const BOOKING_BLOCK_RE = /```booking\n([\s\S]*?)\n```/;
 	const CANCEL_BLOCK_RE = /```cancel_booking\n([\s\S]*?)\n```/;
+	const BOOKING_LIST_RE = /```booking_list\n([\s\S]*?)\n```/;
 
 	// Parse the booking JSON only once the message is fully streamed (message.done).
 	// This prevents partial-JSON parse errors during streaming.
@@ -634,6 +637,19 @@
 		if (!m) return null;
 		try {
 			return (JSON.parse(m[1]).id as string) ?? null;
+		} catch {
+			return null;
+		}
+	})();
+
+	// Parse booking_list block — array of compact booking summaries for list view.
+	$: parsedBookingList = (() => {
+		if (!message.done) return null;
+		const m = BOOKING_LIST_RE.exec(message.content ?? '');
+		if (!m) return null;
+		try {
+			const parsed = JSON.parse(m[1]);
+			return Array.isArray(parsed) ? parsed : null;
 		} catch {
 			return null;
 		}
@@ -671,11 +687,13 @@
 		const stripped = raw
 			.replace(BOOKING_BLOCK_RE, '')
 			.replace(CANCEL_BLOCK_RE, '')
+			.replace(BOOKING_LIST_RE, '')
 			.trim();
 		if (message.done) return stripped;
 		return stripped
 			.replace(/```booking[\s\S]*$/, '')
 			.replace(/```cancel_booking[\s\S]*$/, '')
+			.replace(/```booking_list[\s\S]*$/, '')
 			.trim();
 	})();
 
@@ -783,7 +801,7 @@
 	>
 		<div class={`shrink-0 ltr:mr-3 rtl:ml-3 hidden @lg:flex mt-1 `}>
 			<ProfileImage
-				src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${model?.id}&lang=${$i18n.language}`}
+				src="/static/favicon.png"
 				className={'size-8 assistant-message-profile-image'}
 			/>
 		</div>
@@ -1011,6 +1029,12 @@
 										onSendCalendar={(id, inv) => handleBookingAction('send_calendar', id, { invitees: inv })}
 									onRoomSelect={(id, roomData) => handleBookingAction('room_select', id, roomData)}
 									/>
+								</div>
+							{/if}
+
+							{#if parsedBookingList && message.done}
+								<div class="booking-list-wrapper">
+									<BookingList bookings={parsedBookingList} />
 								</div>
 							{/if}
 						</div>

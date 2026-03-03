@@ -12,6 +12,40 @@
 	export let inputValue = '';
 	export let onSelect = (e) => {};
 
+	// Always use booking-relevant suggestions regardless of admin-configured prompts
+	const BOOKING_SUGGESTIONS = [
+		{
+			id: 'bs-1',
+			content: 'Đặt phòng họp cho khách SIA vào thứ 4 tuần sau tại Hà Nội',
+			title: ['Đặt phòng họp', 'Khách SIA • Thứ 4 tuần sau • Hà Nội']
+		},
+		{
+			id: 'bs-2',
+			content: 'Xem lịch họp sắp tới của tôi',
+			title: ['Xem lịch họp', 'Danh sách cuộc họp sắp tới']
+		},
+		{
+			id: 'bs-3',
+			content: 'Đặt phòng nội bộ cho team meeting ngày mai buổi sáng',
+			title: ['Họp nội bộ', 'Team meeting • Ngày mai • Buổi sáng']
+		},
+		{
+			id: 'bs-4',
+			content: 'Hủy lịch họp với khách hôm nay',
+			title: ['Hủy lịch họp', 'Tìm và hủy cuộc họp hiện tại']
+		},
+		{
+			id: 'bs-5',
+			content: 'Khách Kuok Group đến thăm văn phòng TP.HCM thứ 6 tuần này lúc 9 giờ',
+			title: ['Đón khách văn phòng', 'Kuok Group • Thứ 6 • TP.HCM • 9:00']
+		},
+		{
+			id: 'bs-6',
+			content: 'Đổi giờ họp với Sony sang 14:00',
+			title: ['Thay đổi lịch họp', 'Cập nhật thời gian cuộc họp với Sony']
+		}
+	];
+
 	let sortedPrompts = [];
 
 	const fuseOptions = {
@@ -22,8 +56,8 @@
 	let fuse;
 	let filteredPrompts = [];
 
-	// Initialize Fuse
-	$: fuse = new Fuse(sortedPrompts, fuseOptions);
+	// Initialize Fuse — always search against booking suggestions
+	$: fuse = new Fuse(BOOKING_SUGGESTIONS, fuseOptions);
 
 	// Update the filteredPrompts if inputValue changes
 	// Only increase version if something wirklich geändert hat
@@ -58,8 +92,8 @@
 		}
 	};
 
-	$: if (suggestionPrompts) {
-		sortedPrompts = [...(suggestionPrompts ?? [])].sort(() => Math.random() - 0.5);
+	$: if (suggestionPrompts || BOOKING_SUGGESTIONS) {
+		sortedPrompts = [...BOOKING_SUGGESTIONS].sort(() => Math.random() - 0.5);
 		getFilteredPrompts(inputValue);
 	}
 </script>

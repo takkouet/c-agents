@@ -1,0 +1,40 @@
+services:
+  gemini-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.gemini-proxy
+    container_name: gemini-proxy
+    environment:
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_PROXY_PORT=4000
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/v1/models')"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+
+  open-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: open-webui
+    volumes:
+      - open-webui-data:/app/backend/data
+    depends_on:
+      gemini-proxy:
+        condition: service_healthy
+    ports:
+      - "${OPEN_WEBUI_PORT:-3000}:8080"
+    environment:
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY}
+      - OPENAI_API_BASE_URL=http://gemini-proxy:4000/v1
+      - OPENAI_API_KEY=sk-1234
+      - SCARF_NO_ANALYTICS=true
+      - DO_NOT_TRACK=true
+      - ANONYMIZED_TELEMETRY=false
+    restart: unless-stopped
+
+volumes:
+  open-webui-data: {}

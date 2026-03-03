@@ -303,7 +303,7 @@ BOOKING WORKFLOW
    TODAY = {{CURRENT_DATE}}  →  ngày kia = TODAY + 2 days  →  resolve to YYYY-MM-DD
    All required fields present → NO greeting, NO questions. Output ONLY step 6:
 
-   📋 **Xác nhận thông tin đặt phòng**
+   📋 **Xác nhận thông tin**
 
    | | |
    |---|---|
@@ -315,7 +315,7 @@ BOOKING WORKFLOW
    | 👥 **Số người** | 5 người |
    | ✉️ **Phê duyệt bởi** | Nguyễn Văn Trang |
 
-   *Bạn có muốn xác nhận đặt phòng không?*
+   *Bạn có muốn xác nhận thông tin đặt phòng trên không?*
    ─────────────────────────────────────────────────────────────────────────
 
 1. UNDERSTAND the user's intent naturally — they may describe it casually.
@@ -352,13 +352,16 @@ BOOKING WORKFLOW
    - HCM → Lê Minh Khoa <lmkhoa2@cmcglobal.vn> (Floor 3)
 
 5. OPTIONAL FIELDS — apply defaults silently without mentioning them:
+   - Start time  → 09:00 if not stated by the user (NEVER use the current clock time from TODAY context)
    - End time    → start_time + 1 hour
    - Attendees   → 5 people
    - Location    → HN (Hà Nội)
 
+   ⚠️  The `time` value in TODAY context is the current wall-clock time for reference only.
+       Do NOT use it as the meeting start_time. Default start_time is always 09:00.
+
    The ONLY fields you may ask about (one question max, combined):
    ✅ title/purpose — if completely absent
-   ✅ start time    — if completely absent
    ✅ date          — ONLY if there is zero date hint (no day, no relative expression, nothing)
    ❌ NEVER ask about: end time, duration, number of attendees, location, city, room
 
@@ -368,7 +371,7 @@ BOOKING WORKFLOW
    details in a structured table and ask the user to confirm. Do NOT output a booking
    block yet. Use this exact markdown format (adapt field values):
 
-   📋 **Xác nhận thông tin đặt phòng**
+   📋 **Xác nhận thông tin**
 
    | | |
    |---|---|
@@ -380,7 +383,7 @@ BOOKING WORKFLOW
    | 👥 **Số người** | 5 người |
    | ✉️ **Phê duyệt bởi** | Nguyễn Văn Trang |
 
-   *Bạn có muốn xác nhận đặt phòng không?*
+   *Bạn có muốn xác nhận thông tin đặt phòng trên không?*
 
    Keep the table header row (| | | and |---|---|) exactly as shown.
 
@@ -419,12 +422,33 @@ ACTIVE BOOKINGS REGISTRY (session)
 ══════════════════════════════════════
 {{ACTIVE_BOOKINGS}}
 
+  ⚠️  BOOKING IDs ARE INTERNAL — NEVER reveal any booking id (e.g. MTG-HN-...) to the user
+  in any message, list, summary, or confirmation. IDs are for system use only.
+
 CONFLICT DETECTION: If the user requests a room/time that overlaps with an existing
 booking above, warn them and suggest an alternative room or time slot.
 
 BOOKING OPERATIONS:
-- "List my bookings" / "Danh sách lịch họp" → list all entries from the registry above.
 - "Update meeting [description]" → start a new booking flow with the corrected details.
+
+LISTING BOOKINGS:
+  When the user asks to see their meetings ("xem lịch họp", "danh sách cuộc họp",
+  "list my bookings", "upcoming meetings", "lịch họp sắp tới", etc.), respond with a
+  brief intro sentence then output a booking_list block with the relevant bookings from
+  the ACTIVE BOOKINGS REGISTRY above.
+
+  Format (use triple-backtick booking_list fence):
+  Each item must include: id, title, client, date (YYYY-MM-DD), start_time (HH:MM),
+  end_time (HH:MM), location (HN/HCM/DN), room_name, status.
+  The id field is required internally but MUST NOT appear in any user-visible text.
+
+  Rules:
+  - Include ALL non-cancelled bookings from the registry unless user specifies a filter.
+  - Sort by date ascending (soonest first).
+  - If registry is empty, say "Bạn chưa có lịch họp nào." (no block needed).
+  - NEVER invent bookings not in the registry.
+  - NEVER show or mention booking ids in your reply text.
+  - Keep explanatory text OUTSIDE the booking_list block.
 
 CANCELLATION WORKFLOW — follow these 3 steps exactly:
 
@@ -487,8 +511,19 @@ POST-CANCELLATION: After confirming the cancellation naturally, always follow up
      mình luôn sẵn sàng hỗ trợ bạn nhé. 😊"
   Otherwise, proceed with the relevant workflow based on the user's response.
 
-CONFLICT DETECTION: warn only when the requested room/time overlaps with a booking whose
-  status is 'approved' or 'sent' (a 'pending' or 'draft' booking does NOT block a room).
+CONFLICT DETECTION:
+  Only 'approved' or 'sent' bookings block a room. 'pending'/'draft' do NOT block.
+
+  When a conflict exists, do NOT just warn — always suggest concrete alternatives:
+    a) Same time, different room in the same office (next room up/down in capacity tier).
+    b) If ALL rooms in that office are blocked at that time: suggest the same room at a
+       different time slot, or a different office with available rooms.
+
+  Suggestions must be specific — name the room or time, e.g.:
+    "Phòng Rose đã có lịch vào giờ đó. Bạn có muốn đặt phòng Daisy (10 người)
+     cùng giờ, hoặc đặt phòng Rose vào buổi chiều (ví dụ 14:00 – 15:00) không?"
+
+  After the user responds, proceed with the new details immediately (no extra confirmation step).
 
 ══════════════════════════════════════
 HANDLING THE CALENDAR INVITE SUMMARY
@@ -503,7 +538,7 @@ def get_booking_agent_system_prompt(user_email: str = "") -> str:
     """Build the system prompt dynamically, injecting the current date and live booking registry."""
     dt = _get_current_datetime()
     current_date = (
-        f"{dt['date']} ({dt['day_of_week']}) | time={dt['time']}"
+        f"{dt['date']} ({dt['day_of_week']})"
         f" | tomorrow={dt['tomorrow']}"
         f" | day_after_tomorrow={dt['day_after_tomorrow']}"
         f" | next_week={dt['next_week']}"
@@ -533,16 +568,14 @@ CORS_HEADERS = {
     "Access-Control-Max-Age": "86400",
 }
 
-# Models exposed to Open WebUI
-AVAILABLE_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.5-pro",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-]
-DEFAULT_MODEL = "gemini-2.0-flash"
+# Agents exposed to Open WebUI — maps agent-id -> {display name, actual Gemini model}
+AGENTS = {
+    "meeting-room-agent": {
+        "name": "Meeting Room Agent",
+        "gemini_model": "gemini-2.5-flash",
+    },
+}
+DEFAULT_AGENT = "meeting-room-agent"
 
 ssl_ctx = ssl.create_default_context(cafile=certifi.where())
 
@@ -771,12 +804,13 @@ async def handle_models(request: web.Request) -> web.Response:
     now = int(time.time())
     data = [
         {
-            "id": m,
+            "id": agent_id,
+            "name": agent["name"],
             "object": "model",
             "created": now,
             "owned_by": "google",
         }
-        for m in AVAILABLE_MODELS
+        for agent_id, agent in AGENTS.items()
     ]
     return web.json_response({"object": "list", "data": data}, headers=CORS_HEADERS)
 
@@ -798,12 +832,13 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             status=400, headers=CORS_HEADERS,
         )
 
-    model = body.get("model", DEFAULT_MODEL)
-    # Strip any org prefix Open WebUI might add (e.g. "google/gemini-2.0-flash")
-    if "/" in model:
-        model = model.split("/", 1)[1]
-    if model not in AVAILABLE_MODELS:
-        model = DEFAULT_MODEL
+    agent_id = body.get("model", DEFAULT_AGENT)
+    # Strip any org prefix Open WebUI might add (e.g. "google/meeting-room-agent")
+    if "/" in agent_id:
+        agent_id = agent_id.split("/", 1)[1]
+    if agent_id not in AGENTS:
+        agent_id = DEFAULT_AGENT
+    model = AGENTS[agent_id]["gemini_model"]
 
     streaming = body.get("stream", False)
     raw_messages = body.get("messages", [])
@@ -1057,6 +1092,39 @@ async def handle_patch_booking(request: web.Request) -> web.Response:
 
 
 # ---------------------------------------------------------------------------
+# Room availability
+# ---------------------------------------------------------------------------
+
+async def handle_availability(request: web.Request) -> web.Response:
+    """Return room_codes occupied at the given date/time slot (approved or sent only)."""
+    q = request.rel_url.query
+    date       = q.get("date", "")
+    start_time = q.get("start_time", "")
+    end_time   = q.get("end_time", "")
+    exclude_id = q.get("exclude_id", "")
+
+    if not date or not start_time or not end_time:
+        return web.json_response({"occupied": []}, headers=CORS_HEADERS)
+
+    try:
+        with get_db() as conn:
+            sql = (
+                "SELECT DISTINCT room_code FROM bookings "
+                "WHERE date=? AND status IN ('approved','sent') "
+                "AND start_time < ? AND end_time > ?"
+            )
+            params: list = [date, end_time, start_time]
+            if exclude_id:
+                sql += " AND id != ?"
+                params.append(exclude_id)
+            rows = conn.execute(sql, params).fetchall()
+        occupied = [r["room_code"] for r in rows if r["room_code"]]
+        return web.json_response({"occupied": occupied}, headers=CORS_HEADERS)
+    except Exception as e:
+        return web.json_response({"error": str(e)}, status=500, headers=CORS_HEADERS)
+
+
+# ---------------------------------------------------------------------------
 # Admin CRUD — meeting rooms
 # ---------------------------------------------------------------------------
 
@@ -1223,6 +1291,8 @@ def create_app() -> web.Application:
     app.router.add_route("PATCH", "/api/bookings/{booking_id}", handle_patch_booking)
     app.router.add_delete("/api/bookings/{booking_id}", handle_delete_booking)
     # Meeting rooms CRUD
+    app.router.add_get("/api/availability", handle_availability)
+
     app.router.add_get("/api/meeting-rooms", handle_list_rooms)
     app.router.add_post("/api/meeting-rooms", handle_add_room)
     app.router.add_put("/api/meeting-rooms/{room_id}", handle_update_room)
@@ -1249,5 +1319,6 @@ if __name__ == "__main__":
     print(f"Open WebUI connection settings:")
     print(f"  URL:     http://localhost:{PORT}/v1")
     print(f"  API Key: sk-1234  (any non-empty value)")
-    print(f"  Models:  {', '.join(AVAILABLE_MODELS)}")
+    agents_str = ", ".join(f"{k} ({v['name']})" for k, v in AGENTS.items())
+    print(f"  Agents:  {agents_str}")
     web.run_app(create_app(), host="0.0.0.0", port=PORT)
