@@ -132,6 +132,19 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
             ]
         models = models + arena_models
 
+    # Add orchestrator model
+    if request.app.state.config.ENABLE_ORCHESTRATOR:
+        orchestrator_model = {
+            "id": "orchestrator",
+            "name": "Orchestrator",
+            "info": {"meta": {}},
+            "object": "model",
+            "created": int(time.time()),
+            "owned_by": "orchestrator",
+            "orchestrator": True,
+        }
+        models = models + [orchestrator_model]
+
     global_action_ids = [
         function.id for function in Functions.get_global_action_functions()
     ]
