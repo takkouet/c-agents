@@ -8,6 +8,7 @@
 		chatId,
 		config,
 		mobile,
+		models,
 		settings,
 		showArchivedChats,
 		showControls,
@@ -22,6 +23,7 @@
 
 	import ShareChatModal from '../chat/ShareChatModal.svelte';
 	import ModelSelector from '../chat/ModelSelector.svelte';
+	import AgentIndicator from '../chat/AgentIndicator.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import Menu from '$lib/components/layout/Navbar/Menu.svelte';
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
@@ -49,7 +51,10 @@
 	export let chat;
 	export let history;
 	export let selectedModels;
+	export let selectedModelId = '';
 	export let showModelSelector = true;
+
+	$: orchestratorEnabled = $models?.some((m) => m.id === 'orchestrator') ?? false;
 
 	export let onSaveTempChat: () => {};
 	export let archiveChatHandler: (id: string) => void;
@@ -112,7 +117,11 @@
 			"
 				>
 					{#if showModelSelector}
-						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+						{#if orchestratorEnabled}
+							<AgentIndicator {selectedModelId} models={$models} />
+						{:else}
+							<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
+						{/if}
 					{/if}
 				</div>
 
