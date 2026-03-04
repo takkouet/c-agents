@@ -457,6 +457,9 @@ from open_webui.config import (
     QUERY_GENERATION_PROMPT_TEMPLATE,
     AUTOCOMPLETE_GENERATION_PROMPT_TEMPLATE,
     AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH,
+    ENABLE_ORCHESTRATOR,
+    ORCHESTRATOR_ROUTING_MODEL,
+    ORCHESTRATOR_SYSTEM_PROMPT,
     AppConfig,
     reset_config,
 )
@@ -782,6 +785,16 @@ app.state.TOOL_SERVERS = []
 ########################################
 
 app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
+
+########################################
+#
+# ORCHESTRATOR
+#
+########################################
+
+app.state.config.ENABLE_ORCHESTRATOR = ENABLE_ORCHESTRATOR
+app.state.config.ORCHESTRATOR_ROUTING_MODEL = ORCHESTRATOR_ROUTING_MODEL
+app.state.config.ORCHESTRATOR_SYSTEM_PROMPT = ORCHESTRATOR_SYSTEM_PROMPT
 
 ########################################
 #

@@ -4164,3 +4164,32 @@ LDAP_ATTRIBUTE_FOR_GROUPS = PersistentConfig(
     "ldap.server.attribute_for_groups",
     os.environ.get("LDAP_ATTRIBUTE_FOR_GROUPS", "memberOf"),
 )
+
+####################################
+# ORCHESTRATOR
+####################################
+
+ENABLE_ORCHESTRATOR = PersistentConfig(
+    "ENABLE_ORCHESTRATOR",
+    "orchestrator.enable",
+    os.environ.get("ENABLE_ORCHESTRATOR", "False").lower() == "true",
+)
+
+ORCHESTRATOR_ROUTING_MODEL = PersistentConfig(
+    "ORCHESTRATOR_ROUTING_MODEL",
+    "orchestrator.routing_model",
+    os.environ.get("ORCHESTRATOR_ROUTING_MODEL", ""),
+)
+
+ORCHESTRATOR_SYSTEM_PROMPT = PersistentConfig(
+    "ORCHESTRATOR_SYSTEM_PROMPT",
+    "orchestrator.system_prompt",
+    os.environ.get(
+        "ORCHESTRATOR_SYSTEM_PROMPT",
+        """You are an intelligent routing agent. Your job is to analyze the user's message and select the most appropriate AI agent to handle it.
+
+Available agents are listed with their ID, name, description, and tags.
+Respond with ONLY the agent ID (e.g., "gpt-4o" or "claude-3-opus"). 
+If no agent is suitable or if you can handle the request yourself, respond with exactly: NONE""",
+    ),
+)

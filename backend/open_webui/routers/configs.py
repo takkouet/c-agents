@@ -96,6 +96,43 @@ async def set_connections_config(
     }
 
 
+############################
+# Orchestrator Config
+############################
+
+
+class OrchestratorConfigForm(BaseModel):
+    enabled: bool
+    routing_model: str
+    system_prompt: str
+
+
+@router.get("/orchestrator", response_model=OrchestratorConfigForm)
+async def get_orchestrator_config(request: Request, user=Depends(get_admin_user)):
+    return {
+        "enabled": request.app.state.config.ENABLE_ORCHESTRATOR,
+        "routing_model": request.app.state.config.ORCHESTRATOR_ROUTING_MODEL,
+        "system_prompt": request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT,
+    }
+
+
+@router.post("/orchestrator", response_model=OrchestratorConfigForm)
+async def set_orchestrator_config(
+    request: Request,
+    form_data: OrchestratorConfigForm,
+    user=Depends(get_admin_user),
+):
+    request.app.state.config.ENABLE_ORCHESTRATOR = form_data.enabled
+    request.app.state.config.ORCHESTRATOR_ROUTING_MODEL = form_data.routing_model
+    request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT = form_data.system_prompt
+
+    return {
+        "enabled": request.app.state.config.ENABLE_ORCHESTRATOR,
+        "routing_model": request.app.state.config.ORCHESTRATOR_ROUTING_MODEL,
+        "system_prompt": request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT,
+    }
+
+
 class OAuthClientRegistrationForm(BaseModel):
     url: str
     client_id: str
