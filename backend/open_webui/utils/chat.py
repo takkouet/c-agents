@@ -22,6 +22,7 @@ from open_webui.socket.main import (
     get_event_emitter,
 )
 from open_webui.functions import generate_function_chat_completion
+from open_webui.utils.orchestrator import route_to_agent
 
 from open_webui.routers.openai import (
     generate_chat_completion as generate_openai_chat_completion,
@@ -240,6 +241,52 @@ async def generate_chat_completion(
                 )
                 return StreamingResponse(
                     stream_wrapper(response.body_iterator),
+                    media_type="text/event-stream",
+                    background=response.background,
+                )
+            else:
+                return {
+                    **(
+                        await generate_chat_completion(
+                            request,
+                            form_data,
+                            user,
+                            bypass_filter=True,
+                            bypass_system_prompt=bypass_system_prompt,
+                        )
+                    ),
+                    "selected_model_id": selected_model_id,
+                }
+
+        if model.get("owned_by") == "orchestrator":
+            selected_model_id = await route_to_agent(form_data, user, request)
+
+            if selected_model_id:
+                form_data["model"] = selected_model_id
+            else:
+                routing_model = request.app.state.config.ORCHESTRATOR_ROUTING_MODEL
+                if routing_model and routing_model in request.app.state.MODELS:
+                    form_data["model"] = routing_model
+                    selected_model_id = routing_model
+                else:
+                    raise Exception("Orchestrator routing model not configured")
+
+            if form_data.get("stream") == True:
+
+                async def orchestrator_stream_wrapper(stream):
+                    yield f"data: {json.dumps({'selected_model_id': selected_model_id})}\n\n"
+                    async for chunk in stream:
+                        yield chunk
+
+                response = await generate_chat_completion(
+                    request,
+                    form_data,
+                    user,
+                    bypass_filter=True,
+                    bypass_system_prompt=bypass_system_prompt,
+                )
+                return StreamingResponse(
+                    orchestrator_stream_wrapper(response.body_iterator),
                     media_type="text/event-stream",
                     background=response.background,
                 )
