@@ -7,8 +7,9 @@
 	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
 
-	export let config = { enabled: false, routing_model: '', system_prompt: '' };
+	export let config = { enabled: false, routing_model: '', system_prompt: '', show_model_selector: false };
 	export let models: Array<{ id: string; name: string }> = [];
+	export let hideTitleAndBorder = false;
 
 	let localConfig = { ...config };
 	$: if (config) localConfig = { ...config };
@@ -22,9 +23,14 @@
 	}
 </script>
 
-<div class="p-4 rounded-2xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-850">
+<div class="{hideTitleAndBorder ? '' : 'p-4 rounded-2xl bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-850'}">
+	{#if !hideTitleAndBorder}
+		<div class="flex items-center justify-between mb-4">
+			<h3 class="text-lg font-semibold">{$i18n.t('Orchestrator Configuration')}</h3>
+		</div>
+	{/if}
 	<div class="flex items-center justify-between mb-4">
-		<h3 class="text-lg font-semibold">{$i18n.t('Orchestrator Configuration')}</h3>
+		<span class="text-sm font-medium">{$i18n.t('Enable Orchestrator')}</span>
 		<Switch bind:state={localConfig.enabled} />
 	</div>
 
@@ -50,6 +56,14 @@
 					class="w-full rounded-xl border border-gray-200 dark:border-gray-800 bg-transparent px-4 py-2.5 text-sm outline-none focus:border-gray-300 dark:focus:border-gray-700 resize-y transition"
 					placeholder={$i18n.t('Enter orchestrator system prompt...')}
 				/>
+			</div>
+
+			<div class="flex items-center justify-between">
+				<div>
+					<span class="text-sm font-medium">{$i18n.t('Show Model Selector')}</span>
+					<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">{$i18n.t('Allow users to switch models from the chat navbar')}</p>
+				</div>
+				<Switch bind:state={localConfig.show_model_selector} />
 			</div>
 
 			<div class="flex justify-end gap-2 pt-1">

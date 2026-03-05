@@ -12,6 +12,7 @@
 		showArtifacts,
 		showEmbeds
 	} from '$lib/stores';
+	import { showOrchestrationSidebar } from '$lib/stores';
 
 	import Controls from './Controls/Controls.svelte';
 	import CallOverlay from './MessageInput/CallOverlay.svelte';
@@ -140,6 +141,7 @@
 		showOverview.set(false);
 		showArtifacts.set(false);
 		showEmbeds.set(false);
+		showOrchestrationSidebar.set(false);
 
 		if ($showCallOverlay) {
 			showCallOverlay.set(false);
@@ -197,6 +199,15 @@
 							}}
 						/>
 					{/await}
+				{:else if $showOrchestrationSidebar}
+					{#await import('./AgentOrchestrationSidebar.svelte') then { default: AgentOrchestrationSidebar }}
+						<AgentOrchestrationSidebar
+							onClose={() => {
+								showControls.set(false);
+								showOrchestrationSidebar.set(false);
+							}}
+						/>
+					{/await}
 				{:else}
 					<Controls
 						on:close={() => {
@@ -251,7 +262,7 @@
 		{#if $showControls}
 			<div class="flex max-h-full min-h-full">
 				<div
-					class="w-full {($showOverview || $showArtifacts || $showEmbeds) && !$showCallOverlay
+					class="w-full {($showOverview || $showArtifacts || $showEmbeds || $showOrchestrationSidebar) && !$showCallOverlay
 						? ' '
 						: 'px-4 py-3 bg-white dark:shadow-lg dark:bg-gray-850 '} z-40 pointer-events-auto overflow-y-auto scrollbar-hidden"
 					id="controls-container"
@@ -290,6 +301,15 @@
 								}}
 								onClose={() => {
 									showControls.set(false);
+								}}
+							/>
+						{/await}
+					{:else if $showOrchestrationSidebar}
+						{#await import('./AgentOrchestrationSidebar.svelte') then { default: AgentOrchestrationSidebar }}
+							<AgentOrchestrationSidebar
+								onClose={() => {
+									showControls.set(false);
+									showOrchestrationSidebar.set(false);
 								}}
 							/>
 						{/await}

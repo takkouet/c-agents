@@ -4189,7 +4189,13 @@ ORCHESTRATOR_SYSTEM_PROMPT = PersistentConfig(
         """You are an intelligent routing agent. Your job is to analyze the user's message and select the most appropriate AI agent to handle it.
 
 Available agents are listed with their ID, name, description, and tags.
-Respond with ONLY the agent ID (e.g., "gpt-4o" or "claude-3-opus"). 
+Respond with ONLY the agent ID (e.g., "gpt-4o" or "claude-3-opus").
 If no agent is suitable or if you can handle the request yourself, respond with exactly: NONE""",
     ),
+)
+
+ORCHESTRATOR_SHOW_MODEL_SELECTOR = PersistentConfig(
+    "ORCHESTRATOR_SHOW_MODEL_SELECTOR",
+    "orchestrator.show_model_selector",
+    os.environ.get("ORCHESTRATOR_SHOW_MODEL_SELECTOR", "False").lower() == "true",
 )

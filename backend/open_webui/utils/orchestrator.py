@@ -1,9 +1,43 @@
 import asyncio
 import json
 import logging
+import time
+import uuid
 from typing import Optional
 
+from open_webui.utils.orchestration_broadcast import publish
+
 log = logging.getLogger(__name__)
+
+
+def _user_can_access_model(user, model_id: str, request) -> bool:
+    """Return True if user has read access to the given model."""
+    from open_webui.utils.models import check_model_access
+
+    model = request.app.state.MODELS.get(model_id)
+    if not model:
+        return False
+    try:
+        check_model_access(user, model)
+        return True
+    except Exception:
+        return False
+
+
+async def _emit(session_id: str, step: str, message: str, **kwargs):
+    """Publish an orchestration event to all WebSocket subscribers."""
+    try:
+        await publish(
+            {
+                "step": step,
+                "session_id": session_id,
+                "message": message,
+                "timestamp": time.time(),
+                **kwargs,
+            }
+        )
+    except Exception as e:
+        log.warning(f"Failed to emit orchestration event: {e}")
 
 
 async def route_to_agent(form_data: dict, user, request) -> Optional[str]:
@@ -36,6 +70,9 @@ async def route_to_agent(form_data: dict, user, request) -> Optional[str]:
         for model in worker_models
     ]
 
+    session_id = str(uuid.uuid4())
+    await _emit(session_id, "session_start", "Analyzing your request...")
+
     user_message = ""
     for msg in reversed(form_data.get("messages", [])):
         if msg.get("role") == "user":
@@ -48,6 +85,13 @@ async def route_to_agent(form_data: dict, user, request) -> Optional[str]:
             else:
                 user_message = content
             break
+
+    await _emit(
+        session_id,
+        "routing",
+        "Selecting the best agent...",
+        agents=agents,
+    )
 
     routing_form_data = {
         "model": routing_model,
@@ -89,7 +133,30 @@ async def route_to_agent(form_data: dict, user, request) -> Optional[str]:
 
         worker_ids = {m["id"] for m in worker_models}
         if selected_id in worker_ids:
-            return selected_id
+            if not _user_can_access_model(user, selected_id, request):
+                await _emit(
+                    session_id,
+                    "permission_denied",
+                    "You don't have permission to access this agent. Please contact your admin.",
+                    agent_id=selected_id,
+                )
+                return "PERMISSION_DENIED", session_id
+
+            selected_name = next(
+                (a["name"] for a in agents if a["id"] == selected_id),
+                selected_id,
+            )
+            await _emit(
+                session_id,
+                "agent_active",
+                f"Delegated to {selected_name}",
+                agent_id=selected_id,
+                agent_label=selected_name,
+                agent_icon="🤖",
+                agent_dept="",
+                action=f"Handling request",
+            )
+            return selected_id, session_id
 
         log.warning(f"Orchestrator returned invalid model id: {selected_id!r}")
         return None

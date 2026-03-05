@@ -96,6 +96,7 @@ from open_webui.routers import (
     users,
     utils,
     scim,
+    orchestration,
 )
 
 from open_webui.routers.retrieval import (
@@ -460,6 +461,7 @@ from open_webui.config import (
     ENABLE_ORCHESTRATOR,
     ORCHESTRATOR_ROUTING_MODEL,
     ORCHESTRATOR_SYSTEM_PROMPT,
+    ORCHESTRATOR_SHOW_MODEL_SELECTOR,
     AppConfig,
     reset_config,
 )
@@ -795,6 +797,7 @@ app.state.config.ENABLE_DIRECT_CONNECTIONS = ENABLE_DIRECT_CONNECTIONS
 app.state.config.ENABLE_ORCHESTRATOR = ENABLE_ORCHESTRATOR
 app.state.config.ORCHESTRATOR_ROUTING_MODEL = ORCHESTRATOR_ROUTING_MODEL
 app.state.config.ORCHESTRATOR_SYSTEM_PROMPT = ORCHESTRATOR_SYSTEM_PROMPT
+app.state.config.ORCHESTRATOR_SHOW_MODEL_SELECTOR = ORCHESTRATOR_SHOW_MODEL_SELECTOR
 
 ########################################
 #
@@ -1526,6 +1529,7 @@ app.include_router(audio.router, prefix="/api/v1/audio", tags=["audio"])
 app.include_router(retrieval.router, prefix="/api/v1/retrieval", tags=["retrieval"])
 
 app.include_router(configs.router, prefix="/api/v1/configs", tags=["configs"])
+app.include_router(orchestration.router, prefix="/api/v1/orchestration", tags=["orchestration"])
 
 app.include_router(auths.router, prefix="/api/v1/auths", tags=["auths"])
 app.include_router(users.router, prefix="/api/v1/users", tags=["users"])
@@ -2161,6 +2165,7 @@ async def get_app_config(request: Request):
                     "enable_google_drive_integration": app.state.config.ENABLE_GOOGLE_DRIVE_INTEGRATION,
                     "enable_onedrive_integration": app.state.config.ENABLE_ONEDRIVE_INTEGRATION,
                     "enable_memories": app.state.config.ENABLE_MEMORIES,
+                    "orchestrator_show_model_selector": app.state.config.ORCHESTRATOR_SHOW_MODEL_SELECTOR,
                     **(
                         {
                             "enable_onedrive_personal": ENABLE_ONEDRIVE_PERSONAL,

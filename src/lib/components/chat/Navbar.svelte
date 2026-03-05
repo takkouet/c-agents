@@ -55,6 +55,7 @@
 	export let showModelSelector = true;
 
 	$: orchestratorEnabled = $models?.some((m) => m.id === 'orchestrator') ?? false;
+	$: showModelSelectorOverride = $config?.features?.orchestrator_show_model_selector ?? false;
 
 	export let onSaveTempChat: () => {};
 	export let archiveChatHandler: (id: string) => void;
@@ -117,7 +118,7 @@
 			"
 				>
 					{#if showModelSelector}
-						{#if orchestratorEnabled}
+						{#if orchestratorEnabled && !showModelSelectorOverride}
 							<AgentIndicator {selectedModelId} models={$models} />
 						{:else}
 							<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />

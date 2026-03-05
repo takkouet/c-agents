@@ -3,17 +3,21 @@
 
 	import { flyAndScale } from '$lib/utils/transitions';
 
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, getContext } from 'svelte';
 	import ChevronDown from '../icons/ChevronDown.svelte';
 	import Check from '../icons/Check.svelte';
 	import Search from '../icons/Search.svelte';
 
+	const i18n = getContext('i18n');
 	const dispatch = createEventDispatcher();
 
 	export let value = '';
-	export let placeholder = $i18n.t('Select a model');
+	export let placeholder = '';
 	export let searchEnabled = true;
-	export let searchPlaceholder = $i18n.t('Search a model');
+	export let searchPlaceholder = '';
+
+	$: _placeholder = placeholder || $i18n.t('Select a model');
+	$: _searchPlaceholder = searchPlaceholder || $i18n.t('Search a model');
 
 	export let items = [
 		{ value: 'mango', label: 'Mango' },
@@ -40,10 +44,10 @@
 		value = selectedItem.value;
 	}}
 >
-	<Select.Trigger class="relative w-full" aria-label={placeholder}>
+	<Select.Trigger class="relative w-full" aria-label={_placeholder}>
 		<Select.Value
 			class="inline-flex h-input px-0.5 w-full outline-hidden bg-transparent truncate text-lg font-semibold placeholder-gray-400  focus:outline-hidden"
-			{placeholder}
+			placeholder={_placeholder}
 		/>
 		<ChevronDown className="absolute end-2 top-1/2 -translate-y-[45%] size-3.5" strokeWidth="2.5" />
 	</Select.Trigger>
@@ -60,7 +64,7 @@
 					<input
 						bind:value={searchValue}
 						class="w-full text-sm bg-transparent outline-hidden"
-						placeholder={searchPlaceholder}
+						placeholder={_searchPlaceholder}
 					/>
 				</div>
 

@@ -105,6 +105,7 @@ class OrchestratorConfigForm(BaseModel):
     enabled: bool
     routing_model: str
     system_prompt: str
+    show_model_selector: bool = False
 
 
 @router.get("/orchestrator", response_model=OrchestratorConfigForm)
@@ -113,6 +114,7 @@ async def get_orchestrator_config(request: Request, user=Depends(get_admin_user)
         "enabled": request.app.state.config.ENABLE_ORCHESTRATOR,
         "routing_model": request.app.state.config.ORCHESTRATOR_ROUTING_MODEL,
         "system_prompt": request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT,
+        "show_model_selector": request.app.state.config.ORCHESTRATOR_SHOW_MODEL_SELECTOR,
     }
 
 
@@ -125,11 +127,13 @@ async def set_orchestrator_config(
     request.app.state.config.ENABLE_ORCHESTRATOR = form_data.enabled
     request.app.state.config.ORCHESTRATOR_ROUTING_MODEL = form_data.routing_model
     request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT = form_data.system_prompt
+    request.app.state.config.ORCHESTRATOR_SHOW_MODEL_SELECTOR = form_data.show_model_selector
 
     return {
         "enabled": request.app.state.config.ENABLE_ORCHESTRATOR,
         "routing_model": request.app.state.config.ORCHESTRATOR_ROUTING_MODEL,
         "system_prompt": request.app.state.config.ORCHESTRATOR_SYSTEM_PROMPT,
+        "show_model_selector": request.app.state.config.ORCHESTRATOR_SHOW_MODEL_SELECTOR,
     }
 
 
