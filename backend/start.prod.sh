@@ -19,6 +19,16 @@ for i in $(seq 1 30); do
     sleep 1
 done
 
+# ── Mock Agents (IT / HR / Finance) ───────────────────────────────────────────
+echo "Starting Mock Agents on port ${MOCK_AGENTS_PORT:-4001}..."
+python mock_agents.py &
+MOCK_AGENTS_PID=$!
+
+# ── Orchestrator Agent ─────────────────────────────────────────────────────────
+echo "Starting Orchestrator Agent on port ${ORCHESTRATOR_PORT:-4002}..."
+python orchestrator_agent.py &
+ORCHESTRATOR_PID=$!
+
 # ── Open WebUI (copied from original start.sh) ────────────────────────────────
 if [ -n "${WEBUI_SECRET_KEY_FILE}" ]; then
     KEY_FILE="${WEBUI_SECRET_KEY_FILE}"
@@ -56,8 +66,8 @@ else
     ARGS=(--workers "$UVICORN_WORKERS")
 fi
 
-# Trap to clean up proxy process if webui exits
-trap "kill $PROXY_PID 2>/dev/null" EXIT
+# Trap to clean up all agent processes if webui exits
+trap "kill $PROXY_PID $MOCK_AGENTS_PID $ORCHESTRATOR_PID 2>/dev/null" EXIT
 
 echo "Starting Open WebUI on port $PORT..."
 WEBUI_SECRET_KEY="$WEBUI_SECRET_KEY" exec "$PYTHON_CMD" -m uvicorn open_webui.main:app \

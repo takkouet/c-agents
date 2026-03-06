@@ -22,6 +22,7 @@ from open_webui.socket.main import (
     get_event_emitter,
 )
 from open_webui.functions import generate_function_chat_completion
+from open_webui.utils.orchestrator import route_to_agent
 
 from open_webui.routers.openai import (
     generate_chat_completion as generate_openai_chat_completion,
@@ -256,6 +257,151 @@ async def generate_chat_completion(
                     ),
                     "selected_model_id": selected_model_id,
                 }
+
+        if model.get("owned_by") == "orchestrator":
+            from open_webui.utils.orchestration_broadcast import publish as orch_publish
+
+            result = await route_to_agent(form_data, user, request)
+
+            orch_session_id = None
+            if result is not None:
+                selected_model_id, orch_session_id = result
+
+                if selected_model_id == "PERMISSION_DENIED":
+                    error_msg = "Sorry, you don't have permission to access the selected agent. Please contact your admin."
+                    if form_data.get("stream"):
+
+                        async def _permission_denied_stream():
+                            chunk = {
+                                "id": f"chatcmpl-{uuid.uuid4().hex}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": "orchestrator",
+                                "choices": [{"index": 0, "delta": {"role": "assistant", "content": error_msg}, "finish_reason": "stop"}],
+                            }
+                            yield f"data: {json.dumps(chunk)}\n\n"
+                            yield "data: [DONE]\n\n"
+
+                        return StreamingResponse(
+                            _permission_denied_stream(), media_type="text/event-stream"
+                        )
+                    else:
+                        return {
+                            "id": f"chatcmpl-{uuid.uuid4().hex}",
+                            "object": "chat.completion",
+                            "created": int(time.time()),
+                            "model": "orchestrator",
+                            "choices": [{"index": 0, "message": {"role": "assistant", "content": error_msg}, "finish_reason": "stop"}],
+                            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                        }
+
+                form_data["model"] = selected_model_id
+            else:
+                # No agent could be routed — return a fallback message
+                no_route_msg = (
+                    "I'm sorry, I couldn't determine which specialist agent can handle your request. "
+                    "Please try rephrasing, or contact your admin for assistance."
+                )
+                if form_data.get("stream"):
+
+                    async def _no_route_stream():
+                        chunk = {
+                            "id": f"chatcmpl-{uuid.uuid4().hex}",
+                            "object": "chat.completion.chunk",
+                            "created": int(time.time()),
+                            "model": "orchestrator",
+                            "choices": [{"index": 0, "delta": {"role": "assistant", "content": no_route_msg}, "finish_reason": "stop"}],
+                        }
+                        yield f"data: {json.dumps(chunk)}\n\n"
+                        yield "data: [DONE]\n\n"
+
+                    return StreamingResponse(
+                        _no_route_stream(), media_type="text/event-stream"
+                    )
+                else:
+                    return {
+                        "id": f"chatcmpl-{uuid.uuid4().hex}",
+                        "object": "chat.completion",
+                        "created": int(time.time()),
+                        "model": "orchestrator",
+                        "choices": [{"index": 0, "message": {"role": "assistant", "content": no_route_msg}, "finish_reason": "stop"}],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    }
+
+            selected_model_info = request.app.state.MODELS.get(selected_model_id, {})
+            selected_agent_label = selected_model_info.get("name", selected_model_id)
+
+            if form_data.get("stream") == True:
+
+                async def orchestrator_stream_wrapper(stream):
+                    yield f"data: {json.dumps({'selected_model_id': selected_model_id})}\n\n"
+                    async for chunk in stream:
+                        yield chunk
+                    # Emit agent_done then session_done after stream completes
+                    if orch_session_id:
+                        try:
+                            await orch_publish(
+                                {
+                                    "step": "agent_done",
+                                    "session_id": orch_session_id,
+                                    "agent_id": selected_model_id,
+                                    "agent_label": selected_agent_label,
+                                    "timestamp": time.time(),
+                                }
+                            )
+                            await orch_publish(
+                                {
+                                    "step": "session_done",
+                                    "session_id": orch_session_id,
+                                    "message": "Completed",
+                                    "timestamp": time.time(),
+                                }
+                            )
+                        except Exception:
+                            pass
+
+                response = await generate_chat_completion(
+                    request,
+                    form_data,
+                    user,
+                    bypass_filter=True,
+                    bypass_system_prompt=bypass_system_prompt,
+                )
+                return StreamingResponse(
+                    orchestrator_stream_wrapper(response.body_iterator),
+                    media_type="text/event-stream",
+                    background=response.background,
+                )
+            else:
+                non_stream_response = await generate_chat_completion(
+                    request,
+                    form_data,
+                    user,
+                    bypass_filter=True,
+                    bypass_system_prompt=bypass_system_prompt,
+                )
+                if orch_session_id:
+                    try:
+                        await orch_publish(
+                            {
+                                "step": "agent_done",
+                                "session_id": orch_session_id,
+                                "agent_id": selected_model_id,
+                                "agent_label": selected_agent_label,
+                                "timestamp": time.time(),
+                            }
+                        )
+                        await orch_publish(
+                            {
+                                "step": "session_done",
+                                "session_id": orch_session_id,
+                                "message": "Completed",
+                                "timestamp": time.time(),
+                            }
+                        )
+                    except Exception:
+                        pass
+                return {**non_stream_response, "selected_model_id": selected_model_id}
 
         if model.get("pipe"):
             # Below does not require bypass_filter because this is the only route the uses this function and it is already bypassing the filter

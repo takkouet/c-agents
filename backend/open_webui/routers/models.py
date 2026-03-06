@@ -629,6 +629,13 @@ async def delete_model_by_id(
     return result
 
 
+@router.get("/admin/all", response_model=list[ModelModel])
+async def get_all_models_admin(
+    user=Depends(get_admin_user), db: Session = Depends(get_session)
+):
+    return Models.get_all_models(db=db)
+
+
 @router.delete("/delete/all", response_model=bool)
 async def delete_all_models(
     user=Depends(get_admin_user), db: Session = Depends(get_session)

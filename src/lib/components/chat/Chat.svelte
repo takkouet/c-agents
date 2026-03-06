@@ -42,7 +42,8 @@
 		functions,
 		selectedFolder,
 		pinnedChats,
-		showEmbeds
+		showEmbeds,
+		showOrchestrationSidebar
 	} from '$lib/stores';
 
 	import {
@@ -84,6 +85,8 @@
 	import { createOpenAITextStream } from '$lib/apis/streaming';
 	import { getFunctions } from '$lib/apis/functions';
 	import { updateFolderById } from '$lib/apis/folders';
+
+	import { resetOrchestration, lockOrchestration, orchestrationDone } from '$lib/stores/orchestration';
 
 	import Banner from '../common/Banner.svelte';
 	import MessageInput from '$lib/components/chat/MessageInput.svelte';
@@ -1582,6 +1585,7 @@
 		history.messages[message.id] = message;
 
 		if (done) {
+			lockOrchestration(); // freeze sidebar once response is fully complete
 			message.done = true;
 
 			if ($settings.responseAutoCopy) {
@@ -1721,6 +1725,10 @@
 
 		messageInput?.setText('');
 		prompt = '';
+
+		resetOrchestration();
+		showOrchestrationSidebar.set(true);
+		showControls.set(true);
 
 		const messages = createMessagesList(history, history.currentId);
 		const _files = JSON.parse(JSON.stringify(files));
@@ -2276,6 +2284,7 @@
 	};
 
 	const submitMessage = async (parentId, prompt) => {
+		orchestrationDone.set(false);
 		let userPrompt = prompt;
 		let userMessageId = uuidv4();
 
@@ -2591,6 +2600,22 @@
 
 			<PaneGroup direction="horizontal" class="w-full h-full">
 				<Pane defaultSize={50} minSize={30} class="h-full flex relative max-w-full flex-col">
+					<!-- Floating "Agent Thinking" toggle — visible only when sidebar is closed -->
+					{#if !$showOrchestrationSidebar}
+						<button
+							class="absolute right-3 top-1/2 -translate-y-1/2 z-50 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 shadow-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+							title="Show Agent Thinking"
+							on:click={() => {
+								showOrchestrationSidebar.set(true);
+								showControls.set(true);
+							}}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+								<path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd" />
+							</svg>
+							Agent Thinking
+						</button>
+					{/if}
 					<Navbar
 						bind:this={navbarElement}
 						chat={{

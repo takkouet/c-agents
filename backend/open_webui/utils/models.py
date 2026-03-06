@@ -132,6 +132,21 @@ async def get_all_models(request, refresh: bool = False, user: UserModel = None)
             ]
         models = models + arena_models
 
+    # Add orchestrator model
+    # NOTE: Commented out — the real orchestrator_agent.py (port 4002) is registered as an
+    # OpenAI connection and exposes its own "orchestrator" model. No need to inject a virtual one.
+    # if request.app.state.config.ENABLE_ORCHESTRATOR:
+    #     orchestrator_model = {
+    #         "id": "orchestrator",
+    #         "name": "Orchestrator",
+    #         "info": {"meta": {}},
+    #         "object": "model",
+    #         "created": int(time.time()),
+    #         "owned_by": "orchestrator",
+    #         "orchestrator": True,
+    #     }
+    #     models = models + [orchestrator_model]
+
     global_action_ids = [
         function.id for function in Functions.get_global_action_functions()
     ]
@@ -454,6 +469,12 @@ def get_filtered_models(models, user, db=None):
                 ):
                     filtered_models.append(model)
                 continue
+
+            # NOTE: Commented out — virtual orchestrator model injection removed; external
+            # orchestrator connection goes through the normal model_info access-control path.
+            # if model.get("orchestrator"):
+            #     filtered_models.append(model)
+            #     continue
 
             model_info = model_infos.get(model["id"])
             if model_info:
