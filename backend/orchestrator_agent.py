@@ -17,6 +17,7 @@ Routing flow:
   4. Streams or returns the agent's response verbatim
 """
 
+import asyncio
 import json
 import os
 import time
@@ -29,6 +30,8 @@ import jwt as _jwt
 import ssl
 from aiohttp import web
 from dotenv import load_dotenv
+
+from open_webui.utils.orchestration_broadcast import subscribe, unsubscribe, publish
 
 load_dotenv()
 
@@ -43,10 +46,11 @@ PORT = int(os.environ.get("ORCHESTRATOR_PORT", 4002))
 
 ROUTING_SYSTEM_PROMPT = os.environ.get(
     "ORCHESTRATOR_SYSTEM_PROMPT",
-    """You are an intelligent routing agent. Your job is to analyze the user's message and select the most appropriate specialist agent to handle it.
+    """You are an intelligent routing agent. Your job is to analyze the user's message and select the most appropriate specialist agent(s) to handle it.
 
 Available agents are listed with their ID, name, and description.
-Respond with ONLY the agent ID (e.g., "it-agent" or "hr-agent").
+If the user's message involves MULTIPLE distinct domains, respond with ALL relevant agent IDs as a JSON array, e.g. ["it-agent", "finance-agent"].
+If only ONE agent is needed, respond with a single-element JSON array, e.g. ["hr-agent"].
 If no agent is suitable, respond with exactly: NONE""",
 )
 
@@ -208,10 +212,20 @@ async def _discover_agents(connector: aiohttp.TCPConnector) -> dict[str, dict]:
                 model_id = model.get("id", "")
                 if not model_id:
                     continue
+                # Look up profile image from Open WebUI DB
+                _avatar = ""
+                try:
+                    from open_webui.models.models import Models as _Models
+                    _rec = _Models.get_model_by_id(model_id)
+                    if _rec and _rec.meta:
+                        _avatar = _rec.meta.profile_image_url or ""
+                except Exception:
+                    pass
                 agents[model_id] = {
                     "name": model.get("name", model_id),
                     "description": model.get("description", ""),
                     "url": base_url,
+                    "profile_image_url": _avatar,
                 }
         except Exception as e:
             print(f"[orchestrator] Failed to query {base_url}: {e!r}", flush=True)
@@ -227,6 +241,7 @@ async def _discover_agents(connector: aiohttp.TCPConnector) -> dict[str, dict]:
                 "name": m.name,
                 "description": (m.meta.description if m.meta else None) or "",
                 "url": None,  # None = route via Open WebUI internal proxy
+                "profile_image_url": (m.meta.profile_image_url if m.meta else None) or "",
             }
     except Exception as e:
         print(f"[orchestrator] Failed to load workspace models: {e!r}", flush=True)
@@ -252,15 +267,15 @@ def _get_user_accessible_agent_ids(user_id: str, agent_ids: list[str]) -> set[st
         return None
 
 
-async def _route_message(user_message: str, connector: aiohttp.TCPConnector, agents_subset: dict | None = None) -> str | None:
+async def _route_message(user_message: str, connector: aiohttp.TCPConnector, agents_subset: dict | None = None) -> list[str]:
     """
-    Ask the Gemini routing model which agent should handle this message.
-    Returns the agent ID string, or None if no suitable agent.
+    Ask the Gemini routing model which agent(s) should handle this message.
+    Returns a list of agent ID strings, or empty list if no suitable agent.
     """
     effective_agents = agents_subset or {}
 
     if not effective_agents:
-        return None
+        return []
 
     agents_list = [
         {"id": k, "name": v["name"], "description": v["description"]}
@@ -274,7 +289,7 @@ async def _route_message(user_message: str, connector: aiohttp.TCPConnector, age
             "content": (
                 f"Available agents:\n{json.dumps(agents_list, indent=2)}\n\n"
                 f"User message: {user_message}\n\n"
-                "Respond with ONLY the agent id. If none suitable, respond: NONE"
+                "Respond with a JSON array of agent IDs. If none suitable, respond: NONE"
             ),
         },
     ]
@@ -289,14 +304,28 @@ async def _route_message(user_message: str, connector: aiohttp.TCPConnector, age
     async with aiohttp.ClientSession(connector=connector, connector_owner=False) as session:
         async with session.post(url, json=payload) as resp:
             if resp.status != 200:
-                return None
+                return []
             data = await resp.json()
 
     result = gemini_response_to_openai(data, ROUTING_MODEL)
     selected = result["choices"][0]["message"]["content"].strip()
-    if selected == "NONE" or selected not in effective_agents:
-        return None
-    return selected
+
+    if selected == "NONE":
+        return []
+
+    # Try parsing as JSON array first
+    try:
+        parsed = json.loads(selected)
+        if isinstance(parsed, list):
+            return [s for s in parsed if s in effective_agents]
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback: single agent ID string
+    if selected in effective_agents:
+        return [selected]
+
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -471,6 +500,9 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     user_id = request.headers.get("X-OpenWebUI-User-Id", "")
     user_role = request.headers.get("X-OpenWebUI-User-Role", "")
 
+    session_id = str(uuid.uuid4())
+    await publish({"step": "session_start", "session_id": session_id, "message": "Request received"})
+
     connector = aiohttp.TCPConnector(ssl=ssl_ctx)
 
     # --- Discover available agents from OpenAI connections (owned_by: c-agents) ---
@@ -487,11 +519,18 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         accessible_agents = {}
 
     # --- Route: ask Gemini which agent should handle this ---
-    selected_id = await _route_message(user_message, connector, agents_subset=accessible_agents)
+    await publish({
+        "step": "routing",
+        "session_id": session_id,
+        "message": "Selecting the best agent...",
+        "agents": [{"id": k, "name": v["name"]} for k, v in accessible_agents.items()],
+    })
+    selected_ids = await _route_message(user_message, connector, agents_subset=accessible_agents)
 
-    if selected_id is None:
+    if not selected_ids:
         if not accessible_agents:
             # No agents accessible — static permission denial
+            await publish({"step": "session_done", "session_id": session_id, "message": "No accessible agents"})
             fallback_text = (
                 "Sorry, you don't have permission to access any specialist agent. "
                 "Please contact your admin."
@@ -535,30 +574,107 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 )
         else:
             # Agents exist but none routable — answer directly with Gemini
+            await publish({"step": "session_done", "session_id": session_id, "message": "Handled directly"})
             result = await _answer_directly(messages, connector, accessible_agents, streaming, request)
             await connector.close()
             return result
 
-    agent = accessible_agents[selected_id]
-    if agent["url"] is None:
-        # Workspace model — proxy via Open WebUI's internal chat endpoint
-        agent_url = f"{WEBUI_BASE_URL}/api/chat/completions"
-    else:
-        # External connection agent — call its own endpoint directly
-        agent_url = f"{agent['url']}/chat/completions"
+    # --- Helper: get agent URL and auth for a given agent ---
+    def _agent_url_and_auth(agent_id: str) -> tuple[str, str]:
+        agent = accessible_agents[agent_id]
+        if agent["url"] is None:
+            url = f"{WEBUI_BASE_URL}/api/chat/completions"
+            a = f"Bearer {_mint_user_token(user_id)}" if user_id else auth
+        else:
+            url = f"{agent['url']}/chat/completions"
+            a = auth
+        return url, a
 
-    # Forward original body to the selected agent (preserve messages, stream flag, params)
-    forward_body = {**body, "model": selected_id}
+    # --- Helper: call one agent non-streaming and return response text ---
+    async def _call_agent(agent_id: str, connector: aiohttp.TCPConnector) -> str:
+        agent = accessible_agents[agent_id]
+        await publish({
+            "step": "agent_active",
+            "session_id": session_id,
+            "agent_id": agent_id,
+            "agent_label": agent["name"],
+            "agent_icon": "🤖",
+            "agent_avatar_url": agent.get("profile_image_url", ""),
+            "agent_dept": "",
+            "action": "Handling request",
+        })
+        agent_url, forward_auth = _agent_url_and_auth(agent_id)
+        forward_body = {**body, "model": agent_id, "stream": False}
+        try:
+            async with aiohttp.ClientSession(connector=connector, connector_owner=False) as session:
+                async with session.post(
+                    agent_url,
+                    json=forward_body,
+                    headers={"Authorization": forward_auth, "Content-Type": "application/json"},
+                    timeout=aiohttp.ClientTimeout(total=60),
+                ) as resp:
+                    if resp.status != 200:
+                        err_text = await resp.text()
+                        await publish({"step": "agent_done", "session_id": session_id, "agent_id": agent_id, "agent_label": agent["name"]})
+                        return f"[{agent['name']}]: Error — {err_text[:200]}"
+                    data = await resp.json()
+            text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            await publish({"step": "agent_done", "session_id": session_id, "agent_id": agent_id, "agent_label": agent["name"]})
+            return text
+        except Exception as e:
+            await publish({"step": "agent_done", "session_id": session_id, "agent_id": agent_id, "agent_label": agent["name"]})
+            return f"[{agent['name']}]: Error — {e!r}"
 
-    # For workspace models (routed via Open WebUI), mint a user JWT so the request
-    # is authenticated as the actual user, not the connection's static API key.
-    if agent["url"] is None and user_id:
-        forward_auth = f"Bearer {_mint_user_token(user_id)}"
-    else:
-        forward_auth = auth
+    # =====================================================================
+    # SINGLE AGENT — proxy directly (streaming or non-streaming)
+    # =====================================================================
+    if len(selected_ids) == 1:
+        selected_id = selected_ids[0]
+        agent = accessible_agents[selected_id]
+        await publish({
+            "step": "agent_active",
+            "session_id": session_id,
+            "agent_id": selected_id,
+            "agent_label": agent["name"],
+            "agent_icon": "🤖",
+            "agent_avatar_url": agent.get("profile_image_url", ""),
+            "agent_dept": "",
+            "action": "Handling request",
+        })
+        agent_url, forward_auth = _agent_url_and_auth(selected_id)
+        forward_body = {**body, "model": selected_id}
 
-    if not streaming:
-        # --- Non-streaming: proxy JSON response ---
+        if not streaming:
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.post(
+                    agent_url,
+                    json=forward_body,
+                    headers={"Authorization": forward_auth, "Content-Type": "application/json"},
+                ) as resp:
+                    if resp.status != 200:
+                        err_text = await resp.text()
+                        return web.json_response(
+                            {"error": {"message": err_text, "type": "upstream_error"}},
+                            status=resp.status,
+                            headers=CORS_HEADERS,
+                        )
+                    data = await resp.json()
+            await publish({"step": "agent_done", "session_id": session_id, "agent_id": selected_id, "agent_label": agent["name"]})
+            await publish({"step": "session_done", "session_id": session_id, "message": "Completed"})
+            return web.json_response(data, headers=CORS_HEADERS)
+
+        # Streaming single agent
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                **CORS_HEADERS,
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await response.prepare(request)
+
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.post(
                 agent_url,
@@ -567,49 +683,138 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             ) as resp:
                 if resp.status != 200:
                     err_text = await resp.text()
-                    return web.json_response(
-                        {"error": {"message": err_text, "type": "upstream_error"}},
-                        status=resp.status,
-                        headers=CORS_HEADERS,
-                    )
-                data = await resp.json()
-        return web.json_response(data, headers=CORS_HEADERS)
+                    err_payload = json.dumps({"error": err_text})
+                    await response.write(f"data: {err_payload}\n\n".encode())
+                    await response.write(b"data: [DONE]\n\n")
+                    await response.write_eof()
+                    return response
 
-    # --- Streaming: proxy SSE stream through ---
-    response = web.StreamResponse(
-        status=200,
-        headers={
-            **CORS_HEADERS,
-            "Content-Type": "text/event-stream",
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        },
+                async for raw_line in resp.content:
+                    await response.write(raw_line)
+
+        await publish({"step": "agent_done", "session_id": session_id, "agent_id": selected_id, "agent_label": agent["name"]})
+        await publish({"step": "session_done", "session_id": session_id, "message": "Completed"})
+        await response.write_eof()
+        return response
+
+    # =====================================================================
+    # MULTIPLE AGENTS — collect responses, then synthesize
+    # =====================================================================
+    agent_responses: list[tuple[str, str]] = []  # (agent_name, response_text)
+
+    for agent_id in selected_ids:
+        agent = accessible_agents[agent_id]
+        text = await _call_agent(agent_id, connector)
+        agent_responses.append((agent["name"], text))
+
+    # Synthesize combined response via Gemini
+    responses_text = "\n\n".join(
+        f"--- Response from {name} ---\n{text}"
+        for name, text in agent_responses
     )
-    await response.prepare(request)
+    synthesis_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful orchestrator. Multiple specialist agents have provided responses "
+                "to the user's request. Combine their responses into a single, coherent, well-organized "
+                "answer. Preserve all important details from each agent. Use clear headings or sections "
+                "to separate different topics. Respond in the same language as the user's original message."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                f"Original user request: {user_message}\n\n"
+                f"Agent responses:\n{responses_text}\n\n"
+                "Please combine these into a single coherent response for the user."
+            ),
+        },
+    ]
 
-    async with aiohttp.ClientSession(connector=connector) as session:
-        async with session.post(
-            agent_url,
-            json=forward_body,
-            headers={"Authorization": forward_auth, "Content-Type": "application/json"},
-        ) as resp:
-            if resp.status != 200:
-                err_text = await resp.text()
-                err_payload = json.dumps({"error": err_text})
-                await response.write(f"data: {err_payload}\n\n".encode())
-                await response.write(b"data: [DONE]\n\n")
-                await response.write_eof()
-                return response
+    contents, system_instruction = openai_messages_to_gemini(synthesis_messages)
+    gemini_payload: dict = {"contents": contents}
+    if system_instruction:
+        gemini_payload["systemInstruction"] = {"parts": [{"text": system_instruction}]}
 
-            async for raw_line in resp.content:
-                await response.write(raw_line)
+    if streaming:
+        synth_url = f"{GEMINI_BASE_URL}/models/{ROUTING_MODEL}:streamGenerateContent?key={GEMINI_API_KEY}&alt=sse"
+        chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
 
-    await response.write_eof()
-    return response
+        response = web.StreamResponse(
+            status=200,
+            headers={
+                **CORS_HEADERS,
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+            },
+        )
+        await response.prepare(request)
+
+        opening = {
+            "id": chunk_id, "object": "chat.completion.chunk",
+            "created": int(time.time()), "model": "orchestrator",
+            "choices": [{"index": 0, "delta": {"role": "assistant", "content": ""}, "finish_reason": None}],
+        }
+        await response.write(f"data: {json.dumps(opening)}\n\n".encode())
+
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(synth_url, json=gemini_payload) as resp:
+                if resp.status == 200:
+                    async for raw_line in resp.content:
+                        line = raw_line.decode("utf-8").strip()
+                        if not line or not line.startswith("data:"):
+                            continue
+                        json_str = line[len("data:"):].strip()
+                        if not json_str:
+                            continue
+                        try:
+                            chunk = json.loads(json_str)
+                        except json.JSONDecodeError:
+                            continue
+                        sse = gemini_chunk_to_openai_sse(chunk, "orchestrator", chunk_id)
+                        if sse:
+                            await response.write(sse.encode())
+
+        await response.write(b"data: [DONE]\n\n")
+        await publish({"step": "session_done", "session_id": session_id, "message": "Completed"})
+        await response.write_eof()
+        return response
+    else:
+        synth_url = f"{GEMINI_BASE_URL}/models/{ROUTING_MODEL}:generateContent?key={GEMINI_API_KEY}"
+        async with aiohttp.ClientSession(connector=connector) as session:
+            async with session.post(synth_url, json=gemini_payload) as resp:
+                if resp.status != 200:
+                    data = {}
+                else:
+                    data = await resp.json()
+        await publish({"step": "session_done", "session_id": session_id, "message": "Completed"})
+        return web.json_response(gemini_response_to_openai(data, "orchestrator"), headers=CORS_HEADERS)
 
 
 async def handle_options(_request: web.Request) -> web.Response:
     return web.Response(status=204, headers=CORS_HEADERS)
+
+
+async def handle_orchestration_ws(request: web.Request) -> web.WebSocketResponse:
+    """GET /v1/orchestration/ws — WebSocket stream of real-time orchestration events."""
+    ws = web.WebSocketResponse()
+    await ws.prepare(request)
+    q = subscribe()
+    try:
+        await ws.send_json({"step": "connected"})
+        while not ws.closed:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=20)
+                await ws.send_json(event)
+            except asyncio.TimeoutError:
+                await ws.ping()
+    except (asyncio.CancelledError, ConnectionResetError):
+        pass
+    finally:
+        unsubscribe(q)
+    return ws
 
 
 # ---------------------------------------------------------------------------
@@ -623,6 +828,7 @@ def create_app() -> web.Application:
     app.router.add_get("/health", handle_health)
     app.router.add_get("/v1/models", handle_models)
     app.router.add_post("/v1/chat/completions", handle_chat_completions)
+    app.router.add_get("/v1/orchestration/ws", handle_orchestration_ws)
     return app
 
 

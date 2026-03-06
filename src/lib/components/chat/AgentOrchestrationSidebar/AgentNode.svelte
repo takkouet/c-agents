@@ -12,11 +12,11 @@
 <div
 	class="flex flex-col items-center gap-1 px-3 py-2.5 rounded-xl border text-center w-[110px] select-none
 		{data.status === 'done'
-		? 'bg-green-500/10 border-green-500/30'
+		? 'bg-green-50 dark:bg-green-950 border-green-500/50'
 		: data.status === 'active'
-			? 'bg-blue-500/10 border-blue-500/30'
+			? 'bg-blue-50 dark:bg-blue-950 border-blue-500/50'
 			: data.status === 'waiting'
-				? 'bg-amber-500/10 border-amber-500/30'
+				? 'bg-amber-50 dark:bg-amber-950 border-amber-500/50'
 				: 'bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700'}"
 >
 	{#if data.status === 'done'}
@@ -40,13 +40,21 @@
 	{:else if data.status === 'active'}
 		<div class="relative flex items-center justify-center w-9 h-9 rounded-full bg-blue-500 text-white shrink-0">
 			<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-20"></span>
-			<span class="text-base leading-none relative">{data.icon}</span>
+			{#if data.avatarUrl}
+				<img src={data.avatarUrl} alt={data.label} class="w-9 h-9 rounded-full object-cover relative" />
+			{:else}
+				<span class="text-base leading-none relative">{data.icon}</span>
+			{/if}
 		</div>
 	{:else}
 		<div
-			class="flex items-center justify-center w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-500 shrink-0"
+			class="flex items-center justify-center w-9 h-9 rounded-full bg-gray-200 dark:bg-gray-700 text-gray-500 shrink-0 overflow-hidden"
 		>
-			<span class="text-base leading-none">{data.icon}</span>
+			{#if data.avatarUrl}
+				<img src={data.avatarUrl} alt={data.label} class="w-9 h-9 rounded-full object-cover" />
+			{:else}
+				<span class="text-base leading-none">{data.icon}</span>
+			{/if}
 		</div>
 	{/if}
 

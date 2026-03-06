@@ -36,6 +36,7 @@ export interface OrchestrationMessage {
 	agent_id?: string;
 	agent_label?: string;
 	agent_icon?: string;
+	agent_avatar_url?: string;
 	agent_dept?: string;
 	action?: string;
 	waiting_message?: string;
@@ -50,6 +51,7 @@ export interface TimelineItem {
 	id: string;
 	label: string;
 	icon: string;
+	avatarUrl?: string;
 	department: string;
 	action: string;
 	status: ItemStatus;

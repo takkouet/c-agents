@@ -65,13 +65,12 @@
 			case 'session_start':
 				if ($orchestrationDone) return;
 				if (sid) activeSessionIds.add(sid);
-				// Only reset timeline on the very first session_start
-				if (globalStatus === 'idle') {
+				// Full reset for the first session; keep existing agents for sub-sessions
+				if (activeSessionIds.size <= 1) {
 					timelineItems = [
 						{ ...ORCHESTRATOR_IDLE, action: 'Planning request…', status: 'active' }
 					];
 				} else {
-					// Subsequent sub-sessions: keep existing agents, reactivate orchestrator
 					updateItem('orchestrator', { action: 'Routing to specialist agents', status: 'active' });
 				}
 				statusMessage = msg.message ?? 'Request received';
@@ -84,11 +83,12 @@
 				break;
 
 			case 'agent_active':
-				updateItem('orchestrator', { action: 'Routing to specialist agents', status: 'active' });
+				updateItem('orchestrator', { action: `Delegated to ${msg.agent_label ?? msg.agent_id}`, status: 'active' });
 				addOrUpdate({
 					id: msg.agent_id!,
 					label: msg.agent_label ?? msg.agent_id!,
 					icon: msg.agent_icon ?? '🤖',
+					avatarUrl: msg.agent_avatar_url || undefined,
 					department: msg.agent_dept ?? '',
 					action: msg.action ?? 'Handling request',
 					status: 'active'
@@ -113,7 +113,10 @@
 				if (sid) activeSessionIds.delete(sid);
 				// Only mark everything done when all sub-sessions have completed
 				if (activeSessionIds.size === 0) {
-					timelineItems = timelineItems.map((i) => ({ ...i, status: 'done' as const }));
+					updateItem('orchestrator', { action: 'Completed', status: 'done' });
+					timelineItems = timelineItems.map((i) =>
+						i.id === 'orchestrator' ? i : { ...i, status: 'done' as const }
+					);
 					statusMessage = msg.message ?? 'Completed ✓';
 					globalStatus = 'done';
 				}
@@ -123,9 +126,8 @@
 
 	// ── WebSocket ────────────────────────────────────────────────────────
 	function getWsUrl(): string {
-		const loc = window.location;
-		const proto = loc.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${proto}//${loc.hostname}:4001/v1/orchestration/ws`;
+		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+		return `${proto}//${location.hostname}:4002/v1/orchestration/ws`;
 	}
 
 	let ws: WebSocket | null = null;
@@ -244,11 +246,19 @@
 						{:else if item.status === 'active'}
 							<div class="relative flex items-center justify-center w-10 h-10 rounded-full bg-blue-500 text-white z-10 shrink-0 shadow-[0_0_15px_rgba(59,130,246,0.4)]">
 								<span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-500 opacity-20"></span>
-								<span class="text-lg leading-none relative">{item.icon}</span>
+								{#if item.avatarUrl}
+									<img src={item.avatarUrl} alt={item.label} class="w-10 h-10 rounded-full object-cover relative" />
+								{:else}
+									<span class="text-lg leading-none relative">{item.icon}</span>
+								{/if}
 							</div>
 						{:else}
-							<div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 z-10 shrink-0">
-								<span class="text-lg leading-none">{item.icon}</span>
+							<div class="flex items-center justify-center w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 z-10 shrink-0 overflow-hidden">
+								{#if item.avatarUrl}
+									<img src={item.avatarUrl} alt={item.label} class="w-10 h-10 rounded-full object-cover" />
+								{:else}
+									<span class="text-lg leading-none">{item.icon}</span>
+								{/if}
 							</div>
 						{/if}
 
