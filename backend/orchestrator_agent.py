@@ -46,11 +46,18 @@ PORT = int(os.environ.get("ORCHESTRATOR_PORT", 4002))
 
 ROUTING_SYSTEM_PROMPT = os.environ.get(
     "ORCHESTRATOR_SYSTEM_PROMPT",
-    """You are an intelligent routing agent. Your job is to analyze the user's message and select the most appropriate specialist agent(s) to handle it.
+    """You are the Orchestrator for C-Agents, a multi-agent enterprise \
+AI platform. You coordinate specialist agents to answer employee queries.
+
+When synthesising specialist responses, produce a clear, structured answer. \
+Reference the information from each agent where relevant.
 
 Available agents are listed with their ID, name, and description.
-If the user's message involves MULTIPLE distinct domains, respond with ALL relevant agent IDs as a JSON array, e.g. ["it-agent", "finance-agent"].
-If only ONE agent is needed, respond with a single-element JSON array, e.g. ["hr-agent"].
+Respond with a JSON array of objects. Each object has "id" (the agent ID) and "action" specific task description (10-20 words, e.g. "Verify employee identity and check current password status").
+Examples:
+  Example for a password-change request:
+[{"agent": "hr", "action": "Verify employee identity and confirm account details"},
+ {"agent": "it", "action": "Check if password reset is permitted and initiate the process"}]
 If no agent is suitable, respond with exactly: NONE""",
 )
 
@@ -161,6 +168,36 @@ def gemini_response_to_openai(gemini_resp: dict, model: str) -> dict:
     }
 
 
+def gemini_chunk_to_openai_sse(chunk: dict, model: str, chunk_id: str) -> str | None:
+    """Convert one Gemini stream chunk to an OpenAI SSE data line."""
+    candidates = chunk.get("candidates", [])
+    if not candidates:
+        return None
+
+    c = candidates[0]
+    parts = c.get("content", {}).get("parts", [])
+    text = "".join(p.get("text", "") for p in parts)
+    fr = c.get("finishReason", "")
+    finish_reason = None
+    if fr in ("STOP", "END_OF_TURN", "MAX_TOKENS"):
+        finish_reason = "stop" if fr != "MAX_TOKENS" else "length"
+
+    payload = {
+        "id": chunk_id,
+        "object": "chat.completion.chunk",
+        "created": int(time.time()),
+        "model": model,
+        "choices": [
+            {
+                "index": 0,
+                "delta": {"content": text} if text else {},
+                "finish_reason": finish_reason,
+            }
+        ],
+    }
+    return f"data: {json.dumps(payload)}\n\n"
+
+
 # ---------------------------------------------------------------------------
 # Routing helper
 # ---------------------------------------------------------------------------
@@ -267,10 +304,16 @@ def _get_user_accessible_agent_ids(user_id: str, agent_ids: list[str]) -> set[st
         return None
 
 
-async def _route_message(user_message: str, connector: aiohttp.TCPConnector, agents_subset: dict | None = None) -> list[str]:
+async def _route_message(
+    user_message: str,
+    connector: aiohttp.TCPConnector,
+    agents_subset: dict | None = None,
+    conversation: list | None = None,
+) -> list[dict]:
     """
     Ask the Gemini routing model which agent(s) should handle this message.
-    Returns a list of agent ID strings, or empty list if no suitable agent.
+    Returns a list of dicts: [{"id": "agent-id", "action": "short description"}, ...],
+    or empty list if no suitable agent.
     """
     effective_agents = agents_subset or {}
 
@@ -282,14 +325,39 @@ async def _route_message(user_message: str, connector: aiohttp.TCPConnector, age
         for k, v in effective_agents.items()
     ]
 
+    # Build a conversation summary for context so the router can understand
+    # follow-up messages like "yes", "confirm", "ok" in context.
+    context_block = ""
+    if conversation and len(conversation) > 1:
+        # Include recent conversation history (last few turns) for context
+        recent = conversation[-10:]  # last 10 messages max
+        history_lines = []
+        for msg in recent:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(
+                    p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+                )
+            if content and role in ("user", "assistant"):
+                history_lines.append(f"{role}: {content[:200]}")
+        if history_lines:
+            context_block = "Recent conversation:\n" + "\n".join(history_lines) + "\n\n"
+
     routing_messages = [
         {"role": "system", "content": ROUTING_SYSTEM_PROMPT},
         {
             "role": "user",
             "content": (
                 f"Available agents:\n{json.dumps(agents_list, indent=2)}\n\n"
-                f"User message: {user_message}\n\n"
-                "Respond with a JSON array of agent IDs. If none suitable, respond: NONE"
+                f"{context_block}"
+                f"Latest user message: {user_message}\n\n"
+                "Based on the conversation context and the latest message, respond with a JSON array of objects.\n"
+                'Each object must have "id" (agent ID) and "action" (a short present-participle description '
+                "of what this agent will do for this specific request, e.g. "
+                '"Resetting user password", "Looking up leave balance", "Processing expense receipt").\n'
+                'Example: [{"id": "it-agent", "action": "Resetting user password"}]\n'
+                "If no agent is suitable, respond with exactly: NONE"
             ),
         },
     ]
@@ -309,21 +377,39 @@ async def _route_message(user_message: str, connector: aiohttp.TCPConnector, age
 
     result = gemini_response_to_openai(data, ROUTING_MODEL)
     selected = result["choices"][0]["message"]["content"].strip()
+    print(f"[orchestrator] routing raw response: {selected!r}", flush=True)
 
     if selected == "NONE":
         return []
 
-    # Try parsing as JSON array first
+    # Strip markdown code fences that Gemini often wraps around JSON
+    cleaned = selected
+    if "```" in cleaned:
+        # Extract content between code fences
+        fence_start = cleaned.find("```")
+        first_newline = cleaned.find("\n", fence_start)
+        fence_end = cleaned.rfind("```")
+        if first_newline != -1 and fence_end > first_newline:
+            cleaned = cleaned[first_newline + 1:fence_end].strip()
+
+    # Try parsing as JSON array of objects: [{"id": "...", "action": "..."}]
     try:
-        parsed = json.loads(selected)
+        parsed = json.loads(cleaned)
         if isinstance(parsed, list):
-            return [s for s in parsed if s in effective_agents]
+            results = []
+            for item in parsed:
+                if isinstance(item, dict) and item.get("id") in effective_agents:
+                    results.append({"id": item["id"], "action": item.get("action", "Handling request")})
+                elif isinstance(item, str) and item in effective_agents:
+                    # Backward compat: plain string array
+                    results.append({"id": item, "action": "Handling request"})
+            return results
     except (json.JSONDecodeError, TypeError):
         pass
 
     # Fallback: single agent ID string
-    if selected in effective_agents:
-        return [selected]
+    if cleaned in effective_agents:
+        return [{"id": cleaned, "action": "Handling request"}]
 
     return []
 
@@ -525,7 +611,10 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
         "message": "Selecting the best agent...",
         "agents": [{"id": k, "name": v["name"]} for k, v in accessible_agents.items()],
     })
-    selected_ids = await _route_message(user_message, connector, agents_subset=accessible_agents)
+    routed_agents = await _route_message(user_message, connector, agents_subset=accessible_agents, conversation=messages)
+    # Build lookup: agent_id -> action description
+    action_map = {r["id"]: r["action"] for r in routed_agents}
+    selected_ids = list(action_map.keys())
 
     if not selected_ids:
         if not accessible_agents:
@@ -601,10 +690,27 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             "agent_icon": "🤖",
             "agent_avatar_url": agent.get("profile_image_url", ""),
             "agent_dept": "",
-            "action": "Handling request",
+            "action": action_map.get(agent_id, "Handling request"),
         })
         agent_url, forward_auth = _agent_url_and_auth(agent_id)
-        forward_body = {**body, "model": agent_id, "stream": False}
+        # When multiple agents handle a single message, prepend a scoping
+        # instruction so each agent answers only the part relevant to its
+        # domain instead of rejecting the entire message as out of scope.
+        # This does NOT replace the worker agent's own system prompt — it is
+        # just an additional system message in the request's messages array.
+        forward_messages = list(messages)
+        if len(selected_ids) > 1:
+            scope_msg = {
+                "role": "system",
+                "content": (
+                    f"The user's message covers multiple topics. You are {agent['name']}. "
+                    "Focus ONLY on the parts relevant to your expertise and ignore the rest — "
+                    "another specialist agent is handling those. "
+                    "Do NOT refuse or say the request is out of scope."
+                ),
+            }
+            forward_messages = [scope_msg] + forward_messages
+        forward_body = {**body, "messages": forward_messages, "model": agent_id, "stream": False}
         try:
             async with aiohttp.ClientSession(connector=connector, connector_owner=False) as session:
                 async with session.post(
@@ -639,7 +745,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
             "agent_icon": "🤖",
             "agent_avatar_url": agent.get("profile_image_url", ""),
             "agent_dept": "",
-            "action": "Handling request",
+            "action": action_map.get(selected_id, "Handling request"),
         })
         agent_url, forward_auth = _agent_url_and_auth(selected_id)
         forward_body = {**body, "model": selected_id}
