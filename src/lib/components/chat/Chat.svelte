@@ -86,7 +86,7 @@
 	import { getFunctions } from '$lib/apis/functions';
 	import { updateFolderById } from '$lib/apis/folders';
 
-	import { resetOrchestration, lockOrchestration, orchestrationDone } from '$lib/stores/orchestration';
+	import { resetOrchestration, lockOrchestration, orchestrationDone, pushOrchestrationEvent } from '$lib/stores/orchestration';
 
 	import Banner from '../common/Banner.svelte';
 	import MessageInput from '$lib/components/chat/MessageInput.svelte';
@@ -529,6 +529,8 @@
 					eventConfirmationInputPlaceholder = data.placeholder;
 					eventConfirmationInputValue = data?.value ?? '';
 					eventConfirmationInputType = data?.type ?? '';
+				} else if (type === 'orchestration') {
+					pushOrchestrationEvent(data);
 				} else {
 					console.log('Unknown message type', data);
 				}
@@ -1726,10 +1728,6 @@
 		messageInput?.setText('');
 		prompt = '';
 
-		resetOrchestration();
-		showOrchestrationSidebar.set(true);
-		showControls.set(true);
-
 		const messages = createMessagesList(history, history.currentId);
 		const _files = JSON.parse(JSON.stringify(files));
 
@@ -1795,6 +1793,11 @@
 			newChat?: boolean;
 		} = {}
 	) => {
+		// Reset orchestration state so the sidebar picks up new events
+		resetOrchestration();
+		showOrchestrationSidebar.set(true);
+		showControls.set(true);
+
 		if (autoScroll) {
 			scrollToBottom();
 		}

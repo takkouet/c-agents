@@ -1,7 +1,6 @@
 <script lang="ts">
-	import { onMount, onDestroy } from 'svelte';
 	import { showOrchestrationSidebar } from '$lib/stores';
-	import { orchestrationDone } from '$lib/stores/orchestration';
+	import { orchestrationDone, orchestrationEvents } from '$lib/stores/orchestration';
 	import type { OrchestrationMessage, TimelineItem } from '$lib/stores/orchestration';
 	import FlowView from './AgentOrchestrationSidebar/FlowView.svelte';
 
@@ -124,49 +123,16 @@
 		}
 	}
 
-	// ── WebSocket ────────────────────────────────────────────────────────
-	function getWsUrl(): string {
-		const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-		return `${proto}//${location.hostname}:4002/v1/orchestration/ws`;
+	// ── Store-based event consumption (via Socket.IO __event_emitter__) ──
+	let lastProcessedIndex = 0;
+
+	$: {
+		const events = $orchestrationEvents;
+		for (const evt of events.slice(lastProcessedIndex)) {
+			handleMessage(evt as OrchestrationMessage);
+		}
+		lastProcessedIndex = events.length;
 	}
-
-	let ws: WebSocket | null = null;
-	let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-	let destroyed = false;
-
-	function connect() {
-		if (destroyed) return;
-		ws = new WebSocket(getWsUrl());
-
-		ws.onmessage = (event) => {
-			try {
-				const msg = JSON.parse(event.data);
-				if (msg.step === 'connected' || msg.step === 'ping') return;
-				handleMessage(msg as OrchestrationMessage);
-			} catch {
-				// ignore malformed messages
-			}
-		};
-
-		ws.onclose = () => {
-			if (!destroyed) {
-				reconnectTimer = setTimeout(connect, 2000);
-			}
-		};
-
-		ws.onerror = () => {
-			// onclose fires after onerror — reconnect handled there
-		};
-	}
-
-	onMount(connect);
-
-	onDestroy(() => {
-		destroyed = true;
-		if (reconnectTimer) clearTimeout(reconnectTimer);
-		ws?.close();
-		ws = null;
-	});
 </script>
 
 <div class="flex flex-col h-full bg-white dark:bg-gray-900">
