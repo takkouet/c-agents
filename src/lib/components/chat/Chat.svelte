@@ -1728,10 +1728,6 @@
 		messageInput?.setText('');
 		prompt = '';
 
-		resetOrchestration();
-		showOrchestrationSidebar.set(true);
-		showControls.set(true);
-
 		const messages = createMessagesList(history, history.currentId);
 		const _files = JSON.parse(JSON.stringify(files));
 
@@ -1797,6 +1793,11 @@
 			newChat?: boolean;
 		} = {}
 	) => {
+		// Reset orchestration state so the sidebar picks up new events
+		resetOrchestration();
+		showOrchestrationSidebar.set(true);
+		showControls.set(true);
+
 		if (autoScroll) {
 			scrollToBottom();
 		}

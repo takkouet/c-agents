@@ -39,7 +39,7 @@ class Pipe:
             description="Ollama base URL for routing LLM",
         )
         ROUTING_MODEL: str = Field(
-            default="llama3.1:8b",
+            default="phi4-mini",
             description="Model used for routing decisions and synthesis",
         )
         ROUTING_SYSTEM_PROMPT: str = Field(
@@ -69,7 +69,7 @@ class Pipe:
         self.valves = self.Valves()
 
     def pipes(self) -> list[dict]:
-        return [{"id": "orchestrator", "name": "C-Agents Orchestrator"}]
+        return [{"id": "orchestrator", "name": "C-Agents"}]
 
     # ------------------------------------------------------------------
     # LLM helpers (replaces llm_provider.py)
@@ -83,10 +83,15 @@ class Pipe:
 
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as resp:
+                async with session.post(
+                    url, json=payload, timeout=aiohttp.ClientTimeout(total=120)
+                ) as resp:
                     if resp.status != 200:
                         err = await resp.text()
-                        print(f"[orchestrator-pipe] call_llm failed ({resp.status}): {err[:200]}", flush=True)
+                        print(
+                            f"[orchestrator-pipe] call_llm failed ({resp.status}): {err[:200]}",
+                            flush=True,
+                        )
                         return self._empty_response(effective_model)
                     return await resp.json()
         except Exception as e:
@@ -102,12 +107,17 @@ class Pipe:
 
         session = aiohttp.ClientSession()
         try:
-            resp = await session.post(url, json=payload, timeout=aiohttp.ClientTimeout(total=300))
+            resp = await session.post(
+                url, json=payload, timeout=aiohttp.ClientTimeout(total=300)
+            )
 
             async def _lines():
                 if resp.status != 200:
                     err = await resp.text()
-                    print(f"[orchestrator-pipe] stream_llm failed ({resp.status}): {err[:200]}", flush=True)
+                    print(
+                        f"[orchestrator-pipe] stream_llm failed ({resp.status}): {err[:200]}",
+                        flush=True,
+                    )
                     return
                 async for raw_line in resp.content:
                     line = raw_line.decode("utf-8").strip()
@@ -125,7 +135,13 @@ class Pipe:
             "object": "chat.completion",
             "created": int(time.time()),
             "model": model,
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": ""}, "finish_reason": "stop"}],
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": ""},
+                    "finish_reason": "stop",
+                }
+            ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
         }
 
@@ -151,7 +167,9 @@ class Pipe:
             for i, base_url in enumerate(base_urls):
                 key = api_keys[i] if i < len(api_keys) else ""
                 try:
-                    async with aiohttp.ClientSession(connector=connector, connector_owner=False) as session:
+                    async with aiohttp.ClientSession(
+                        connector=connector, connector_owner=False
+                    ) as session:
                         async with session.get(
                             f"{base_url}/models",
                             headers={"Authorization": f"Bearer {key}"},
@@ -169,6 +187,7 @@ class Pipe:
                         _avatar = ""
                         try:
                             from open_webui.models.models import Models as _Models
+
                             _rec = _Models.get_model_by_id(model_id)
                             if _rec and _rec.meta:
                                 _avatar = _rec.meta.profile_image_url or ""
@@ -181,11 +200,17 @@ class Pipe:
                             "profile_image_url": _avatar,
                         }
                 except Exception as e:
-                    print(f"[orchestrator-pipe] Failed to query {base_url}: {e!r}", flush=True)
+                    print(
+                        f"[orchestrator-pipe] Failed to query {base_url}: {e!r}",
+                        flush=True,
+                    )
                     continue
             await connector.close()
         except Exception as e:
-            print(f"[orchestrator-pipe] Cannot import Open WebUI config: {e!r}", flush=True)
+            print(
+                f"[orchestrator-pipe] Cannot import Open WebUI config: {e!r}",
+                flush=True,
+            )
 
         # 2) Workspace models from DB
         try:
@@ -198,10 +223,14 @@ class Pipe:
                     "name": m.name,
                     "description": (m.meta.description if m.meta else None) or "",
                     "url": None,  # None = route via Open WebUI internal proxy
-                    "profile_image_url": (m.meta.profile_image_url if m.meta else None) or "",
+                    "profile_image_url": (m.meta.profile_image_url if m.meta else None)
+                    or "",
                 }
         except Exception as e:
-            print(f"[orchestrator-pipe] Failed to load workspace models: {e!r}", flush=True)
+            print(
+                f"[orchestrator-pipe] Failed to load workspace models: {e!r}",
+                flush=True,
+            )
 
         return agents
 
@@ -210,9 +239,12 @@ class Pipe:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _get_user_accessible_agent_ids(user_id: str, agent_ids: list[str]) -> set[str] | None:
+    def _get_user_accessible_agent_ids(
+        user_id: str, agent_ids: list[str]
+    ) -> set[str] | None:
         try:
             from open_webui.models.access_grants import AccessGrants
+
             return AccessGrants.get_accessible_resource_ids(
                 user_id=user_id,
                 resource_type="model",
@@ -268,12 +300,16 @@ class Pipe:
                 content = msg.get("content", "")
                 if isinstance(content, list):
                     content = " ".join(
-                        p.get("text", "") for p in content if isinstance(p, dict) and p.get("type") == "text"
+                        p.get("text", "")
+                        for p in content
+                        if isinstance(p, dict) and p.get("type") == "text"
                     )
                 if content and role in ("user", "assistant"):
                     history_lines.append(f"{role}: {content[:200]}")
             if history_lines:
-                context_block = "Recent conversation:\n" + "\n".join(history_lines) + "\n\n"
+                context_block = (
+                    "Recent conversation:\n" + "\n".join(history_lines) + "\n\n"
+                )
 
         routing_messages = [
             {"role": "system", "content": self.valves.ROUTING_SYSTEM_PROMPT},
@@ -315,7 +351,7 @@ class Pipe:
             first_newline = cleaned.find("\n", fence_start)
             fence_end = cleaned.rfind("```")
             if first_newline != -1 and fence_end > first_newline:
-                cleaned = cleaned[first_newline + 1:fence_end].strip()
+                cleaned = cleaned[first_newline + 1 : fence_end].strip()
 
         try:
             parsed = json.loads(cleaned)
@@ -323,7 +359,12 @@ class Pipe:
                 results = []
                 for item in parsed:
                     if isinstance(item, dict) and item.get("id") in agents_subset:
-                        results.append({"id": item["id"], "action": item.get("action", "Handling request")})
+                        results.append(
+                            {
+                                "id": item["id"],
+                                "action": item.get("action", "Handling request"),
+                            }
+                        )
                     elif isinstance(item, str) and item in agents_subset:
                         results.append({"id": item, "action": "Handling request"})
                 return results
@@ -343,7 +384,9 @@ class Pipe:
     def _mint_user_token(user_id: str) -> str:
         import jwt as _jwt
 
-        secret = os.environ.get("WEBUI_SECRET_KEY", os.environ.get("WEBUI_JWT_SECRET_KEY", "t0p-s3cr3t"))
+        secret = os.environ.get(
+            "WEBUI_SECRET_KEY", os.environ.get("WEBUI_JWT_SECRET_KEY", "t0p-s3cr3t")
+        )
         payload = {
             "id": user_id,
             "exp": datetime.now(timezone.utc) + timedelta(minutes=5),
@@ -369,7 +412,9 @@ class Pipe:
         # Skip orchestration for background tasks (title generation, tags, etc.)
         if __task__:
             result = await self._call_llm(body.get("messages", []))
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = (
+                result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            )
             return content
 
         messages = body.get("messages", [])
@@ -383,10 +428,12 @@ class Pipe:
 
         async def emit(step: str, **kwargs):
             if __event_emitter__:
-                await __event_emitter__({
-                    "type": "orchestration",
-                    "data": {"step": step, "session_id": session_id, **kwargs},
-                })
+                await __event_emitter__(
+                    {
+                        "type": "orchestration",
+                        "data": {"step": step, "session_id": session_id, **kwargs},
+                    }
+                )
 
         # --- Emit: session start ---
         await emit("session_start", message="Request received")
@@ -398,8 +445,12 @@ class Pipe:
         if user_role == "admin":
             accessible_agents = all_agents
         elif user_id:
-            accessible_ids = self._get_user_accessible_agent_ids(user_id, list(all_agents.keys()))
-            accessible_agents = {k: v for k, v in all_agents.items() if k in (accessible_ids or set())}
+            accessible_ids = self._get_user_accessible_agent_ids(
+                user_id, list(all_agents.keys())
+            )
+            accessible_agents = {
+                k: v for k, v in all_agents.items() if k in (accessible_ids or set())
+            }
         else:
             accessible_agents = {}
 
@@ -409,7 +460,9 @@ class Pipe:
             message="Selecting the best agent...",
             agents=[{"id": k, "name": v["name"]} for k, v in accessible_agents.items()],
         )
-        routed_agents = await self._route_message(user_message, accessible_agents, conversation=messages)
+        routed_agents = await self._route_message(
+            user_message, accessible_agents, conversation=messages
+        )
         action_map = {r["id"]: r["action"] for r in routed_agents}
         selected_ids = list(action_map.keys())
 
@@ -462,7 +515,12 @@ class Pipe:
                     ),
                 }
                 forward_messages = [scope_msg] + forward_messages
-            forward_body = {**body, "messages": forward_messages, "model": agent_id, "stream": False}
+            forward_body = {
+                **body,
+                "messages": forward_messages,
+                "model": agent_id,
+                "stream": False,
+            }
             # Remove metadata to avoid recursive pipe invocation issues
             forward_body.pop("metadata", None)
             try:
@@ -471,15 +529,24 @@ class Pipe:
                     async with session.post(
                         agent_url,
                         json=forward_body,
-                        headers={"Authorization": forward_auth, "Content-Type": "application/json"},
+                        headers={
+                            "Authorization": forward_auth,
+                            "Content-Type": "application/json",
+                        },
                         timeout=aiohttp.ClientTimeout(total=60),
                     ) as resp:
                         if resp.status != 200:
                             err_text = await resp.text()
-                            await emit("agent_done", agent_id=agent_id, agent_label=agent["name"])
+                            await emit(
+                                "agent_done",
+                                agent_id=agent_id,
+                                agent_label=agent["name"],
+                            )
                             return f"[{agent['name']}]: Error — {err_text[:200]}"
                         data = await resp.json()
-                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                text = (
+                    data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                )
                 await emit("agent_done", agent_id=agent_id, agent_label=agent["name"])
                 return text
             except Exception as e:
@@ -511,17 +578,28 @@ class Pipe:
                     async with session.post(
                         agent_url,
                         json=forward_body,
-                        headers={"Authorization": forward_auth, "Content-Type": "application/json"},
+                        headers={
+                            "Authorization": forward_auth,
+                            "Content-Type": "application/json",
+                        },
                         timeout=aiohttp.ClientTimeout(total=120),
                     ) as resp:
                         if resp.status != 200:
                             err_text = await resp.text()
-                            await emit("agent_done", agent_id=selected_id, agent_label=agent["name"])
+                            await emit(
+                                "agent_done",
+                                agent_id=selected_id,
+                                agent_label=agent["name"],
+                            )
                             await emit("session_done", message="Error")
                             return f"Error from {agent['name']}: {err_text[:200]}"
                         data = await resp.json()
-                text = data.get("choices", [{}])[0].get("message", {}).get("content", "")
-                await emit("agent_done", agent_id=selected_id, agent_label=agent["name"])
+                text = (
+                    data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                )
+                await emit(
+                    "agent_done", agent_id=selected_id, agent_label=agent["name"]
+                )
                 await emit("session_done", message="Completed")
                 return text
 
@@ -533,7 +611,10 @@ class Pipe:
                         async with session.post(
                             agent_url,
                             json=forward_body,
-                            headers={"Authorization": forward_auth, "Content-Type": "application/json"},
+                            headers={
+                                "Authorization": forward_auth,
+                                "Content-Type": "application/json",
+                            },
                             timeout=aiohttp.ClientTimeout(total=300),
                         ) as resp:
                             if resp.status != 200:
@@ -550,7 +631,9 @@ class Pipe:
                                 if line.startswith("data: "):
                                     yield line
                 finally:
-                    await emit("agent_done", agent_id=selected_id, agent_label=agent["name"])
+                    await emit(
+                        "agent_done", agent_id=selected_id, agent_label=agent["name"]
+                    )
                     await emit("session_done", message="Completed")
 
             return _stream_single()
@@ -589,7 +672,9 @@ class Pipe:
 
         if not streaming:
             result = await self._call_llm(synthesis_messages)
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = (
+                result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            )
             await emit("session_done", message="Completed")
             return content
 
@@ -622,9 +707,10 @@ class Pipe:
         agents: dict,
         streaming: bool,
     ) -> AsyncGenerator[str, None] | str:
-        agent_lines = "\n".join(
-            f"- {v['name']}: {v['description']}" for v in agents.values()
-        ) or "No specialist agents are currently configured."
+        agent_lines = (
+            "\n".join(f"- {v['name']}: {v['description']}" for v in agents.values())
+            or "No specialist agents are currently configured."
+        )
 
         system_prompt = (
             "You are an AI orchestrator assistant. You help employees by routing their requests "
