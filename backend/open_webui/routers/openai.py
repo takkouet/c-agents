@@ -261,6 +261,11 @@ async def update_config(
         if key in keys
     }
 
+    # Sync workspace model active status based on updated connections
+    from open_webui.utils.models import sync_workspace_model_status
+
+    await sync_workspace_model_status(request)
+
     return {
         "ENABLE_OPENAI_API": request.app.state.config.ENABLE_OPENAI_API,
         "OPENAI_API_BASE_URLS": request.app.state.config.OPENAI_API_BASE_URLS,

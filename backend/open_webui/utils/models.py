@@ -37,6 +37,41 @@ logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
 log = logging.getLogger(__name__)
 
 
+async def sync_workspace_model_status(request: Request):
+    """Sync workspace model active status based on currently available base models.
+
+    After a connection config change (enable/disable/remove):
+    - Workspace models whose base_model_id is still live → ensure is_active = True
+    - Workspace models whose base_model_id is no longer live → set is_active = False
+    """
+    # Invalidate cache so we get fresh model lists
+    request.app.state.BASE_MODELS = None
+
+    base_models = await get_all_base_models(request)
+    live_ids = {m["id"] for m in base_models}
+
+    workspace_models = Models.get_all_models()
+    updated = []
+
+    for model in workspace_models:
+        if model.base_model_id is None:
+            continue
+
+        if model.base_model_id in live_ids and not model.is_active:
+            # Base model is live again — re-activate
+            Models.update_model_active_status(model.id, True)
+            updated.append((model.id, True))
+        elif model.base_model_id not in live_ids and model.is_active:
+            # Base model is gone — deactivate
+            Models.update_model_active_status(model.id, False)
+            updated.append((model.id, False))
+
+    if updated:
+        log.info(f"Synced workspace model status: {updated}")
+
+    return updated
+
+
 async def fetch_ollama_models(request: Request, user: UserModel = None):
     raw_ollama_models = await ollama.get_all_models(request, user=user)
     return [
