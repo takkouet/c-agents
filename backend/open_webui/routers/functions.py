@@ -54,6 +54,51 @@ async def get_function_list(
 
 
 ############################
+# GetPipeFunctionModels
+############################
+
+
+@router.get("/pipe/models")
+async def get_pipe_function_models(
+    request: Request, user=Depends(get_verified_user), db: Session = Depends(get_session)
+):
+    """Return pipe functions formatted as model dicts for the Agent Directory."""
+    from open_webui.functions import get_function_models
+
+    pipe_models = await get_function_models(request)
+
+    # Build a lookup of function records for enrichment
+    pipe_ids = set()
+    for model in pipe_models:
+        pipe_id = model["id"].split(".")[0] if "." in model["id"] else model["id"]
+        pipe_ids.add(pipe_id)
+
+    functions_by_id = {
+        f.id: f for f in Functions.get_functions_by_ids(list(pipe_ids), db=db)
+    }
+
+    for model in pipe_models:
+        pipe_id = model["id"].split(".")[0] if "." in model["id"] else model["id"]
+        function = functions_by_id.get(pipe_id)
+        if function:
+            model["meta"] = {
+                "description": function.meta.description if function.meta else None,
+                "profile_image_url": (
+                    (function.meta.manifest or {}).get("icon_url")
+                    if function.meta
+                    else None
+                ),
+                "tags": [],
+            }
+            model["function_id"] = function.id
+            model["is_active"] = function.is_active
+            model["is_global"] = function.is_global
+        model["source"] = "function"
+
+    return pipe_models
+
+
+############################
 # ExportFunctions
 ############################
 

@@ -5,6 +5,7 @@
 	import { user, showSidebar, WEBUI_NAME } from '$lib/stores';
 	import { getAllModelsAdmin, getBaseModels, updateModelById, deleteModelById } from '$lib/apis/models';
 	import { getModels } from '$lib/apis';
+	import { getPipeFunctionModels } from '$lib/apis/functions';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import EditAgentModal from '$lib/components/admin/Agents/EditAgentModal.svelte';
 
@@ -32,14 +33,17 @@
 	async function loadData() {
 		loading = true;
 		try {
-			const [workspaceRes, liveRes, baseModelsRes] = await Promise.all([
+			const [workspaceRes, liveRes, baseModelsRes, pipeRes] = await Promise.all([
 				getAllModelsAdmin($user?.token),
 				getModels($user?.token),
-				getBaseModels($user?.token)
+				getBaseModels($user?.token),
+				getPipeFunctionModels($user?.token).catch(() => [])
 			]);
 
 			// Workspace models (DB records) — already have meta, is_active, etc.
-			const workspaceModels = (workspaceRes ?? []).filter((m) => m.id !== 'orchestrator');
+			const workspaceModels = (workspaceRes ?? [])
+				.filter((m) => m.id !== 'orchestrator')
+				.map((m) => ({ ...m, source: 'workspace' }));
 			const workspaceIds = new Set(workspaceModels.map((m) => m.id));
 
 			// External connection models not already represented as workspace models
@@ -52,6 +56,7 @@
 				)
 				.map((m) => ({
 					...m,
+					source: 'external',
 					is_active: true, // live by definition (server responded)
 					meta: {
 						profile_image_url: null,
@@ -60,7 +65,22 @@
 					}
 				}));
 
-			agents = [...workspaceModels, ...externalModels];
+			// Pipe function models not already represented as workspace or external models
+			const allIds = new Set([...workspaceIds, ...externalModels.map((m) => m.id)]);
+			const pipeModels = (pipeRes ?? [])
+				.filter((m) => !allIds.has(m.id))
+				.map((m) => ({
+					...m,
+					source: 'function',
+					is_active: m.is_active ?? true,
+					meta: {
+						profile_image_url: m.meta?.profile_image_url ?? null,
+						description: m.meta?.description ?? null,
+						tags: []
+					}
+				}));
+
+			agents = [...workspaceModels, ...externalModels, ...pipeModels];
 			baseModels = baseModelsRes ?? [];
 		} catch (e) {
 			toast.error($i18n.t('Failed to load agents'));
@@ -99,26 +119,32 @@
 		showEditModal = true;
 	}
 
+	function isSelectable(agent) {
+		return agent.source !== 'external' && agent.source !== 'function';
+	}
+
 	function handleCardClick(agent) {
 		if (selectMode) return;
 		sessionStorage.selectedModels = JSON.stringify([agent.id]);
 		goto('/');
 	}
 
-	function toggleSelect(agentId) {
-		if (selectedIds.has(agentId)) {
-			selectedIds.delete(agentId);
+	function toggleSelect(agent) {
+		if (!isSelectable(agent)) return;
+		if (selectedIds.has(agent.id)) {
+			selectedIds.delete(agent.id);
 		} else {
-			selectedIds.add(agentId);
+			selectedIds.add(agent.id);
 		}
 		selectedIds = selectedIds; // trigger reactivity
 	}
 
 	function toggleSelectAll() {
-		if (selectedIds.size === agents.length) {
+		const selectableAgents = agents.filter(isSelectable);
+		if (selectedIds.size === selectableAgents.length) {
 			selectedIds = new Set();
 		} else {
-			selectedIds = new Set(agents.map((a) => a.id));
+			selectedIds = new Set(selectableAgents.map((a) => a.id));
 		}
 	}
 
@@ -128,7 +154,12 @@
 	}
 
 	async function handleBulkDelete() {
-		const ids = [...selectedIds];
+		// Only delete selectable (workspace) agents
+		const ids = [...selectedIds].filter((id) => {
+			const agent = agents.find((a) => a.id === id);
+			return agent && isSelectable(agent);
+		});
+		if (ids.length === 0) return;
 		try {
 			await Promise.all(ids.map((id) => deleteModelById($user?.token, id)));
 			toast.success($i18n.t(`Deleted ${ids.length} agent(s)`));
@@ -148,6 +179,12 @@
 	$: onlineCount = agents.filter((a) => a.is_active).length;
 
 	const TAG_BADGE_CLASS = 'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300';
+
+	const SOURCE_BADGE = {
+		workspace: { label: 'Workspace', class: 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300' },
+		external: { label: 'External', class: 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300' },
+		function: { label: 'Function', class: 'bg-purple-100 text-purple-700 dark:bg-purple-900/50 dark:text-purple-300' }
+	};
 </script>
 
 <svelte:head>
@@ -255,14 +292,14 @@
 						: 'border-gray-200 dark:border-gray-600'}"
 					on:click={() => {
 						if (selectMode) {
-							toggleSelect(agent.id);
+							toggleSelect(agent);
 						} else {
 							handleCardClick(agent);
 						}
 					}}
 				>
-					<!-- Select checkbox (top-left, only in select mode) -->
-					{#if selectMode}
+					<!-- Select checkbox (top-left, only in select mode, only for selectable agents) -->
+					{#if selectMode && isSelectable(agent)}
 						<div class="absolute top-3 left-3 z-10">
 							<div
 								class="w-5 h-5 rounded-md border-2 flex items-center justify-center transition {selectedIds.has(agent.id)
@@ -286,7 +323,7 @@
 					></span>
 
 					<!-- Avatar + Name -->
-					<div class="flex items-center gap-3 pr-5 {selectMode ? 'pl-6' : ''}">
+					<div class="flex items-center gap-3 pr-5 {selectMode && isSelectable(agent) ? 'pl-6' : ''}">
 						<img
 							src={agent.meta?.profile_image_url || '/static/favicon.png'}
 							alt={agent.name}
@@ -296,7 +333,12 @@
 							<span class="font-semibold text-sm text-gray-900 dark:text-white line-clamp-1">
 								{agent.name}
 							</span>
-							<div class="flex min-w-0 gap-1">
+							<div class="flex flex-wrap min-w-0 gap-1">
+								{#if agent.source && SOURCE_BADGE[agent.source]}
+									<span class="inline-block text-[10px] font-medium uppercase px-2 py-0.5 mt-1 rounded-full {SOURCE_BADGE[agent.source].class}">
+										{$i18n.t(SOURCE_BADGE[agent.source].label)}
+									</span>
+								{/if}
 								{#each (agent.meta?.tags ?? []) as tag, i}
 									{#if i < 2}
 										<span class="inline-block text-[10px] font-medium uppercase px-2 py-0.5 mt-1 rounded-full {TAG_BADGE_CLASS}">
@@ -318,7 +360,7 @@
 					</p>
 
 					<!-- Gear icon (bottom-right, only for workspace models, hidden in select mode) -->
-					{#if !selectMode && isWorkspaceModel(agent)}
+					{#if !selectMode && isWorkspaceModel(agent) && agent.source !== 'function'}
 						<!-- svelte-ignore a11y_click_events_have_key_events -->
 						<!-- svelte-ignore a11y_no_static_element_interactions -->
 						<button

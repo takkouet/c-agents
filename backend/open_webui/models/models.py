@@ -404,6 +404,24 @@ class ModelsTable:
         except Exception:
             return []
 
+    def update_model_active_status(
+        self, id: str, is_active: bool, db: Optional[Session] = None
+    ) -> Optional[ModelModel]:
+        with get_db_context(db) as db:
+            try:
+                model = db.query(Model).filter_by(id=id).first()
+                if not model:
+                    return None
+
+                model.is_active = is_active
+                model.updated_at = int(time.time())
+                db.commit()
+                db.refresh(model)
+
+                return self._to_model_model(model, db=db)
+            except Exception:
+                return None
+
     def toggle_model_by_id(
         self, id: str, db: Optional[Session] = None
     ) -> Optional[ModelModel]:
