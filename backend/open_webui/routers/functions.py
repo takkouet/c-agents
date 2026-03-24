@@ -15,6 +15,7 @@ from open_webui.models.functions import (
     FunctionWithValvesModel,
     Functions,
 )
+from open_webui.models.models import Models
 from open_webui.utils.plugin import (
     load_function_module_by_id,
     replace_imports,
@@ -441,6 +442,9 @@ async def delete_function_by_id(
         FUNCTIONS = request.app.state.FUNCTIONS
         if id in FUNCTIONS:
             del FUNCTIONS[id]
+
+        # Clean up any associated model record (may not exist; that's fine)
+        Models.delete_model_by_id(id, db=db)
 
     return result
 

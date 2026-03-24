@@ -533,11 +533,23 @@ async def update_model_access_by_id(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
             )
+
+        # If this is a pipe function, inherit its metadata so it isn't lost.
+        from open_webui.models.functions import Functions as FunctionsTable
+
+        meta = ModelMeta()
+        func = FunctionsTable.get_function_by_id(form_data.id, db=db)
+        if func and func.meta:
+            meta.description = func.meta.description
+            icon_url = (func.meta.manifest or {}).get("icon_url")
+            if icon_url:
+                meta.profile_image_url = icon_url
+
         model = Models.insert_new_model(
             ModelForm(
                 id=form_data.id,
                 name=form_data.name or form_data.id,
-                meta=ModelMeta(),
+                meta=meta,
                 params=ModelParams(),
             ),
             user.id,

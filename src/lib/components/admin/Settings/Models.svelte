@@ -155,7 +155,9 @@
 				toast.success($i18n.t('Model updated successfully'));
 			}
 		} else {
-			const res = await createNewModel(localStorage.token, {
+			// Try create first; if a record already exists (e.g. auto-created by
+			// access control update), fall back to update so metadata is preserved.
+			let res = await createNewModel(localStorage.token, {
 				meta: {},
 				id: model.id,
 				name: model.name,
@@ -163,9 +165,11 @@
 				params: {},
 				access_grants: [],
 				...model
-			}).catch((error) => {
-				return null;
-			});
+			}).catch(() => null);
+
+			if (!res) {
+				res = await updateModelById(localStorage.token, model.id, model).catch(() => null);
+			}
 
 			if (res) {
 				toast.success($i18n.t('Model updated successfully'));
